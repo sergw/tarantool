@@ -2914,7 +2914,6 @@ struct Parse {
 	u32 newmask;		/* Mask of new.* columns referenced */
 	u8 eTriggerOp;		/* TK_UPDATE, TK_INSERT or TK_DELETE */
 	u8 eOrconf;		/* Default ON CONFLICT policy for trigger steps */
-	u8 disableTriggers;	/* True to disable triggers */
 	/** Region to make SQL temp allocations. */
 	struct region region;
 

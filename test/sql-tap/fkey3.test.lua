@@ -36,7 +36,7 @@ test:do_catchsql_test(
         DROP TABLE t1;
     ]], {
         -- <fkey3-1.3.1>
-        1, "FOREIGN KEY constraint failed"
+        1, "can't drop parent table T1 when child table refers to it"
         -- </fkey3-1.3.1>
     })
 
@@ -46,7 +46,7 @@ test:do_catchsql_test(
         DROP TABLE t1;
     ]], {
         -- <fkey3-1.3.2>
-        1, "FOREIGN KEY constraint failed"
+        1, "can't drop parent table T1 when child table refers to it"
         -- </fkey3-1.3.2>
     })
 

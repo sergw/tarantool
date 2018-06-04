@@ -124,7 +124,7 @@ test:do_catchsql_test(
           DROP TABLE cc1;
     ]], {
         -- <3.2>
-        1, "FOREIGN KEY constraint failed"
+        1, "can't drop parent table PP1 when child table refers to it"
         -- </3.2>
     })
 

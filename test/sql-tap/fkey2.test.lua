@@ -15,9 +15,6 @@ test:do_execsql_test(
 
         CREATE TABLE t7(a, b INTEGER PRIMARY KEY);
         CREATE TABLE t8(c PRIMARY KEY REFERENCES t7, d);
-
-        CREATE TABLE t9(a PRIMARY KEY REFERENCES nosuchtable, b);
-        CREATE TABLE t10(a PRIMARY KEY REFERENCES t9(c), b);
     ]], {
         -- <fkey2-1.1>
         -- </fkey2-1.1>
@@ -301,21 +298,19 @@ test:do_catchsql_test(
 test:do_catchsql_test(
     "fkey2-1.29",
     [[
-        INSERT INTO t9 VALUES(1, 3);
+        CREATE TABLE t9(a PRIMARY KEY REFERENCES nosuchtable, b);
     ]], {
-        -- <fkey2-1.29>
-        1, "no such table: NOSUCHTABLE"
-        -- </fkey2-1.29>
+        1, "foreign key constraint references nonexistent table: NOSUCHTABLE"
     })
 
 test:do_catchsql_test(
     "fkey2-1.30",
     [[
-        INSERT INTO t10 VALUES(1, 3);
+        INSERT INTO t9 VALUES(1, 3);
     ]], {
-        -- <fkey2-1.30>
-        1, "foreign key mismatch - \"T10\" referencing \"T9\""
-        -- </fkey2-1.30>
+        -- <fkey2-1.29>
+        1, "no such table: T9"
+        -- </fkey2-1.29>
     })
 
 test:do_execsql_test(
@@ -731,8 +726,8 @@ test:do_catchsql_test(
     [[
         DROP TABLE IF EXISTS c;
         DROP TABLE IF EXISTS p;
-        CREATE TABLE c(x PRIMARY KEY REFERENCES v(y));
         CREATE VIEW v AS SELECT x AS y FROM c;
+        CREATE TABLE c(x PRIMARY KEY REFERENCES v(y));
         INSERT INTO c DEFAULT VALUES;
     ]], {
         -- <fkey2-7.2>
@@ -1050,15 +1045,15 @@ test:do_execsql_test(
 --         -- </fkey2-10.5>
 --     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "fkey2-10.6",
     [[
         DROP TABLE IF EXISTS t2;
         DROP TABLE IF EXISTS t1;
         CREATE TABLE t1(a PRIMARY KEY, b REFERENCES nosuchtable);
-        DROP TABLE t1;
     ]], {
         -- <fkey2-10.6>
+        1, "foreign key constraint references nonexistent table: NOSUCHTABLE
         -- </fkey2-10.6>
     })
 
@@ -1211,8 +1206,8 @@ test:do_execsql_test(
     "fkey2-10.20",
     [[
         DROP VIEW IF EXISTS v;
-        CREATE TABLE t1(x PRIMARY KEY REFERENCES v);
         CREATE VIEW v AS SELECT * FROM t1;
+        CREATE TABLE t1(x PRIMARY KEY REFERENCES v);
         DROP VIEW v;
     ]], {
         -- <fkey2-10.20>
