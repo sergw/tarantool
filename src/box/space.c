@@ -216,6 +216,8 @@ space_delete(struct space *space)
 	 * on_replace_dd_trigger on deletion from _trigger.
 	 */
 	assert(space->sql_triggers == NULL);
+	assert(space->child_fkey == NULL);
+	assert(space->parent_fkey == NULL);
 	space->vtab->destroy(space);
 }
 

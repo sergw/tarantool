@@ -215,6 +215,10 @@ struct errcode_record {
 	/*160 */_(ER_ACTION_MISMATCH,		"Field %d contains %s on conflict action, but %s in index parts") \
 	/*161 */_(ER_VIEW_MISSING_SQL,		"Space declared as a view must have SQL statement") \
 	/*162 */_(ER_FOREIGN_KEY_CONSTRAINT,	"Can not commit transaction: deferred foreign keys violations are not resolved") \
+	/*163 */_(ER_CREATE_FK_CONSTRAINT,	"Failed to create foreign key constraint '%s': %s") \
+	/*164 */_(ER_DROP_FK_CONSTRAINT,	"Failed to drop foreign key constraint '%s': %s") \
+
+
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file

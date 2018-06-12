@@ -183,6 +183,9 @@ struct space {
 	 * of index id.
 	 */
 	struct index **index;
+	/** Foreign key constraints. */
+	struct fkey *parent_fkey;
+	struct fkey *child_fkey;
 };
 
 /** Initialize a base space instance. */

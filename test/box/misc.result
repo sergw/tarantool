@@ -487,6 +487,8 @@ t;
   160: box.error.ACTION_MISMATCH
   161: box.error.VIEW_MISSING_SQL
   162: box.error.FOREIGN_KEY_CONSTRAINT
+  163: box.error.CREATE_FK_CONSTRAINT
+  164: box.error.DROP_FK_CONSTRAINT
 ...
 test_run:cmd("setopt delimiter ''");
 ---
