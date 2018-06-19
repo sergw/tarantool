@@ -181,6 +181,9 @@ space_def_sizeof(uint32_t name_len, const struct field_def *fields,
 } /* extern "C" */
 
 #include "diag.h"
+#include "msgpuck.h"
+#include <small/region.h>
+#include "scoped_guard.h"
 
 static inline struct space_def *
 space_def_dup_xc(const struct space_def *src)
@@ -204,6 +207,47 @@ space_def_new_xc(uint32_t id, uint32_t uid, uint32_t exact_field_count,
 	if (ret == NULL)
 		diag_raise();
 	return ret;
+}
+
+/**
+ * Decode MessagePack array of fields.
+ * @param data MessagePack array of fields.
+ * @param[out] out_count Length of a result array.
+ * @param space_name Space name to use in error messages.
+ * @param errcode Errcode for client errors.
+ * @param region Region to allocate result array.
+ *
+ * @retval Array of fields.
+ */
+static inline struct field_def *
+space_format_decode(const char *data, uint32_t *out_count,
+		    const char *space_name, uint32_t name_len,
+		    uint32_t errcode, struct region *region)
+{
+	/* Type is checked by _space format. */
+	assert(mp_typeof(*data) == MP_ARRAY);
+	uint32_t count = mp_decode_array(&data);
+	*out_count = count;
+	if (count == 0)
+		return NULL;
+	size_t size = count * sizeof(struct field_def);
+	struct field_def *region_defs =
+		(struct field_def *) region_alloc_xc(region, size);
+	/*
+	 * Nullify to prevent a case when decoding will fail in
+	 * the middle and space_def_destroy_fields() below will
+	 * work with garbage pointers.
+	 */
+	memset(region_defs, 0, size);
+	auto fields_guard = make_scoped_guard([=] {
+		space_def_destroy_fields(region_defs, count);
+	});
+	for (uint32_t i = 0; i < count; ++i) {
+		field_def_decode(&region_defs[i], &data, space_name, name_len,
+				 errcode, i, region);
+	}
+	fields_guard.is_active = false;
+	return region_defs;
 }
 
 #endif /* __cplusplus */

@@ -475,6 +475,57 @@ box.schema.space.create = function(name, options)
     return box.space[id], "created"
 end
 
+local new_ephemeral = box.internal.space.new_ephemeral
+box.internal.space.new_ephemeral = nil
+local delete_ephemeral = box.internal.space.delete_ephemeral
+box.internal.space.delete_ephemeral = nil
+
+box.schema.space.create_ephemeral = function(options)
+    local options_template = {
+        engine = 'string',
+        field_count = 'number',
+        user = 'string, number',
+        format = 'table',
+    }
+    local options_defaults = {
+        engine = 'memtx',
+        field_count = 0,
+    }
+    check_param_table(options, options_template)
+    options = update_param_table(options, options_defaults)
+
+    local uid = session.euid()
+    if options.user then
+        uid = user_or_role_resolve(options.user)
+        if uid == nil then
+            box.error(box.error.NO_SUCH_USER, options.user)
+        end
+    end
+    local format = options.format and options.format or {}
+    check_param(format, 'format', 'table')
+    format = msgpack.encode(update_format(format))
+
+    local ephemeral_space = {}
+    ephemeral_space.space = new_ephemeral(uid, options.engine,
+        options.field_count, format)
+    -- Set GC for result
+    ephemeral_space.proxy = newproxy(true)
+    getmetatable(ephemeral_space.proxy).__gc = function(self)
+        box.schema.space.drop_ephemeral(ephemeral_space)
+    end
+    ephemeral_space[ephemeral_space.proxy] = true
+    -- Return result
+    return ephemeral_space
+end
+
+box.schema.space.drop_ephemeral = function(ephemeral_space)
+    check_param(ephemeral_space.space, 'space', 'cdata')
+    delete_ephemeral(ephemeral_space.space)
+    ephemeral_space.space = nil
+    ephemeral_space[ephemeral_space.proxy] = nil
+    ephemeral_space.proxy = nil
+end
+
 -- space format - the metadata about space fields
 function box.schema.space.format(id, format)
     local _space = box.space._space

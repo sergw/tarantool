@@ -32,6 +32,10 @@
 #include "field_def.h"
 #include "trivia/util.h"
 #include "key_def.h"
+#include "box/tuple_format.h"
+#include "box/schema_def.h"
+#include "box/identifier.h"
+// #include "sql.h"
 
 const char *field_type_strs[] = {
 	/* [FIELD_TYPE_ANY]      = */ "any",
@@ -125,4 +129,101 @@ field_type_by_name(const char *name, size_t len)
 	else if (len == 1 && name[0] == '*')
 		return FIELD_TYPE_ANY;
 	return field_type_MAX;
+}
+
+int
+field_def_decode(struct field_def *field, const char **data,
+		 const char *space_name, uint32_t name_len,
+		 uint32_t errcode, uint32_t fieldno, struct region *region)
+{
+	if (mp_typeof(**data) != MP_MAP) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d is not map",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	int count = mp_decode_map(data);
+	*field = field_def_default;
+	bool is_action_missing = true;
+	uint32_t action_literal_len = strlen("nullable_action");
+	for (int i = 0; i < count; ++i) {
+		if (mp_typeof(**data) != MP_STR) {
+			diag_set(ClientError, errcode,
+				  tt_cstr(space_name, name_len),
+				  tt_sprintf("field %d format is not map"\
+					     " with string keys",
+					     fieldno + TUPLE_INDEX_BASE));
+			return -1;
+		}
+		uint32_t key_len;
+		const char *key = mp_decode_str(data, &key_len);
+		if (opts_parse_key(field, field_def_reg, key, key_len, data,
+				   ER_WRONG_SPACE_FORMAT,
+				   fieldno + TUPLE_INDEX_BASE, region,
+				   true) != 0)
+			return -1;
+		if (is_action_missing &&
+		    key_len == action_literal_len &&
+		    memcmp(key, "nullable_action", action_literal_len) == 0)
+			is_action_missing = false;
+	}
+	if (is_action_missing) {
+		field->nullable_action = field->is_nullable ?
+			ON_CONFLICT_ACTION_NONE
+			: ON_CONFLICT_ACTION_DEFAULT;
+	}
+	if (field->name == NULL) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d name is not specified",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	size_t field_name_len = strlen(field->name);
+	if (field_name_len > BOX_NAME_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d name is too long",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if(identifier_check(field->name, field_name_len))
+		return -1;
+	if (field->type == field_type_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has unknown field type",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (field->nullable_action == on_conflict_action_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has unknown field on conflict "
+				     "nullable action",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (!((field->is_nullable && field->nullable_action ==
+	       ON_CONFLICT_ACTION_NONE)
+	      || (!field->is_nullable
+		  && field->nullable_action != ON_CONFLICT_ACTION_NONE))) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has conflicting nullability and "
+				     "nullable action properties", fieldno +
+				     TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (field->coll_id != COLL_NONE &&
+	    field->type != FIELD_TYPE_STRING &&
+	    field->type != FIELD_TYPE_SCALAR &&
+	    field->type != FIELD_TYPE_ANY) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("collation is reasonable only for "
+				     "string, scalar and any fields"));
+		return -1;
+	}
+
+	// if (field->default_value != NULL &&
+	//     sql_expr_compile(sql_get(), field->default_value,
+	// 		     strlen(field->default_value),
+	// 		     &field->default_value_expr) != 0)
+	// 	return -1;
+	return 0;
 }

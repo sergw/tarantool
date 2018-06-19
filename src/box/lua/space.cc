@@ -502,6 +502,94 @@ usage_error:
 	return luaL_error(L, "Usage: space:frommap(map, opts)");
 }
 
+/**
+ * Create a ephemeral space.
+ * @param uint32_t uid - user id.
+ * @param const char *engine_name - name of engine.
+ * @param uint32_t field_count - number of fields.
+ * @retval not nil - ephemeral space created.
+ * @retval nil - error, A reason is returned in
+ *         the second value.
+ */
+static int
+lbox_space_new_ephemeral(struct lua_State *L)
+{
+	luaL_cdef(L, "struct space;");
+	uint32_t ctypeid = luaL_ctypeid(L, "struct space *");
+	if(ctypeid == 0)
+		return luaL_error(L, "Error with Lua type_id for space");
+
+	uint32_t argc = lua_gettop(L);
+	if (argc != 4)
+		return luaL_error(L, "Usage: box.schema.space."\
+				     "create_ephemeral(opts)");
+	uint32_t uid = luaL_checknumber (L, 1);
+	const char *engine_name = luaL_checkstring (L, 2);
+	uint32_t field_count = luaL_checknumber (L, 3);
+	const char *data = luaL_checkstring (L, 4);
+
+	const char name[] = "ephemeral";
+	uint32_t name_len = strlen(name);
+	struct region *region = &fiber()->gc;
+
+	struct rlist key_list;
+	rlist_create(&key_list);
+
+	struct field_def *fields = space_format_decode(data, &field_count,
+		name, name_len, 80, region);
+
+	struct space_def *ephemer_space_def =
+		space_def_new(0, uid, 0, name, strlen(name), engine_name,
+			      name_len, &space_opts_default, fields,
+			      field_count);
+	if (ephemer_space_def == NULL)
+		return luaL_error(L, "Error with creating space_def");
+	struct space *space = space_new_ephemeral(ephemer_space_def, &key_list);
+	if (space == NULL)
+		return luaL_error(L, "Error with creating space");
+	struct space **ptr = (struct space **) luaL_pushcdata(L, ctypeid);
+	*ptr = space;
+	return 1;
+}
+
+static inline struct space *
+luaT_isspace(struct lua_State *L, int narg)
+{
+	uint32_t ctypeid;
+	uint32_t ephemeral_space_type_id = luaL_ctypeid(L, "struct space *");
+	if(ephemeral_space_type_id == 0)
+		return NULL;
+	void *data;
+
+	if (lua_type(L, narg) != LUA_TCDATA)
+		return NULL;
+
+	data = luaL_checkcdata(L, narg, &ctypeid);
+	if (ctypeid != ephemeral_space_type_id)
+		return NULL;
+
+	return *(struct space **) data;
+}
+
+static inline struct space *
+lua_checkephemeralspace(struct lua_State *L, int narg)
+{
+	struct space *space = luaT_isspace(L, narg);
+	if (space == NULL) {
+		luaL_error(L, "Invalid argument #%d (ephemeral space expected,"\
+			   "got %s)", narg, lua_typename(L, lua_type(L, narg)));
+	}
+	return space;
+}
+
+static int
+lbox_space_delete_ephemeral(struct lua_State *L)
+{
+	struct space *space = (struct space *)lua_checkephemeralspace(L, 1);
+	space_delete(space);
+	return 0;
+}
+
 void
 box_lua_space_init(struct lua_State *L)
 {
@@ -593,6 +681,8 @@ box_lua_space_init(struct lua_State *L)
 
 	static const struct luaL_Reg space_internal_lib[] = {
 		{"frommap", lbox_space_frommap},
+		{"new_ephemeral", lbox_space_new_ephemeral},
+		{"delete_ephemeral", lbox_space_delete_ephemeral},
 		{NULL, NULL}
 	};
 	luaL_register(L, "box.internal.space", space_internal_lib);

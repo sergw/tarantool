@@ -135,6 +135,24 @@ action_is_nullable(enum on_conflict_action nullable_action)
 	return nullable_action == ON_CONFLICT_ACTION_NONE;
 }
 
+/**
+ * Decode field definition from MessagePack map. Format:
+ * {name: <string>, type: <string>}. Type is optional.
+ * @param[out] field Field to decode to.
+ * @param data MessagePack map to decode.
+ * @param space_name Name of a space, from which the field is got.
+ *        Used in error messages.
+ * @param name_len Length of @a space_name.
+ * @param errcode Error code to use for client errors. Either
+ *        create or modify space errors.
+ * @param fieldno Field number to decode. Used in error messages.
+ * @param region Region to allocate field name.
+ */
+int
+field_def_decode(struct field_def *field, const char **data,
+		 const char *space_name, uint32_t name_len,
+		 uint32_t errcode, uint32_t fieldno, struct region *region);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

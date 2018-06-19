@@ -47,6 +47,7 @@ add_library(tuple STATIC
     coll_id_def.c
     coll_id.c
     coll_id_cache.c
+    identifier.c
     field_def.c
     opt_def.c
 )
