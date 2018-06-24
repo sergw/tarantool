@@ -1400,7 +1400,6 @@ vy_get_by_raw_key(struct vy_lsm *lsm, struct vy_tx *tx,
 /**
  * Check if insertion of a new tuple violates unique constraint
  * of the primary index.
- * @param env        Vinyl environment.
  * @param tx         Current transaction.
  * @param rv         Read view.
  * @param space_name Space name.
@@ -1412,19 +1411,13 @@ vy_get_by_raw_key(struct vy_lsm *lsm, struct vy_tx *tx,
  * @retval -1 Duplicate is found or read error occurred.
  */
 static inline int
-vy_check_is_unique_primary(struct vy_env *env, struct vy_tx *tx,
-			   const struct vy_read_view **rv,
+vy_check_is_unique_primary(struct vy_tx *tx, const struct vy_read_view **rv,
 			   const char *space_name, const char *index_name,
 			   struct vy_lsm *lsm, struct tuple *stmt)
 {
 	assert(lsm->index_id == 0);
 	assert(vy_stmt_type(stmt) == IPROTO_INSERT);
-	/*
-	 * During recovery we apply rows that were successfully
-	 * applied before restart so no conflict is possible.
-	 */
-	if (env->status != VINYL_ONLINE)
-		return 0;
+
 	if (!lsm->check_is_unique)
 		return 0;
 	struct tuple *found;
@@ -1442,7 +1435,6 @@ vy_check_is_unique_primary(struct vy_env *env, struct vy_tx *tx,
 /**
  * Check if insertion of a new tuple violates unique constraint
  * of a secondary index.
- * @param env        Vinyl environment.
  * @param tx         Current transaction.
  * @param rv         Read view.
  * @param space_name Space name.
@@ -1454,20 +1446,14 @@ vy_check_is_unique_primary(struct vy_env *env, struct vy_tx *tx,
  * @retval -1 Duplicate is found or read error occurred.
  */
 static int
-vy_check_is_unique_secondary(struct vy_env *env, struct vy_tx *tx,
-			     const struct vy_read_view **rv,
+vy_check_is_unique_secondary(struct vy_tx *tx, const struct vy_read_view **rv,
 			     const char *space_name, const char *index_name,
 			     struct vy_lsm *lsm, const struct tuple *stmt)
 {
 	assert(lsm->index_id > 0);
 	assert(vy_stmt_type(stmt) == IPROTO_INSERT ||
 	       vy_stmt_type(stmt) == IPROTO_REPLACE);
-	/*
-	 * During recovery we apply rows that were successfully
-	 * applied before restart so no conflict is possible.
-	 */
-	if (env->status != VINYL_ONLINE)
-		return 0;
+
 	if (!lsm->check_is_unique)
 		return 0;
 	if (key_update_can_be_skipped(lsm->key_def->column_mask,
@@ -1523,6 +1509,12 @@ vy_check_is_unique(struct vy_env *env, struct vy_tx *tx,
 	assert(space->index_count > 0);
 	assert(vy_stmt_type(stmt) == IPROTO_INSERT ||
 	       vy_stmt_type(stmt) == IPROTO_REPLACE);
+	/*
+	 * During recovery we apply rows that were successfully
+	 * applied before restart so no conflict is possible.
+	 */
+	if (env->status != VINYL_ONLINE)
+		return 0;
 
 	const struct vy_read_view **rv = vy_tx_read_view(tx);
 
@@ -1533,7 +1525,7 @@ vy_check_is_unique(struct vy_env *env, struct vy_tx *tx,
 	 */
 	if (vy_stmt_type(stmt) == IPROTO_INSERT) {
 		struct vy_lsm *lsm = vy_lsm(space->index[0]);
-		if (vy_check_is_unique_primary(env, tx, rv, space_name(space),
+		if (vy_check_is_unique_primary(tx, rv, space_name(space),
 					       index_name_by_id(space, 0),
 					       lsm, stmt) != 0)
 			return -1;
@@ -1545,7 +1537,7 @@ vy_check_is_unique(struct vy_env *env, struct vy_tx *tx,
 	 */
 	for (uint32_t i = 1; i < space->index_count; i++) {
 		struct vy_lsm *lsm = vy_lsm(space->index[i]);
-		if (vy_check_is_unique_secondary(env, tx, rv, space_name(space),
+		if (vy_check_is_unique_secondary(tx, rv, space_name(space),
 						 index_name_by_id(space, i),
 						 lsm, stmt) != 0)
 			return -1;
@@ -3896,8 +3888,6 @@ vinyl_index_get(struct index *index, const char *key,
 
 /** Argument passed to vy_build_on_replace(). */
 struct vy_build_ctx {
-	/** Vinyl environment. */
-	struct vy_env *env;
 	/** LSM tree under construction. */
 	struct vy_lsm *lsm;
 	/** Format to check new tuples against. */
@@ -3938,7 +3928,7 @@ vy_build_on_replace(struct trigger *trigger, void *event)
 
 	/* Check key uniqueness if necessary. */
 	if (stmt->new_tuple != NULL &&
-	    vy_check_is_unique_secondary(ctx->env, tx, vy_tx_read_view(tx),
+	    vy_check_is_unique_secondary(tx, vy_tx_read_view(tx),
 					 ctx->space_name, ctx->index_name,
 					 lsm, stmt->new_tuple) != 0)
 		goto err;
@@ -4024,9 +4014,8 @@ vy_build_insert_tuple(struct vy_env *env, struct vy_lsm *lsm,
 	 * into it after the yield.
 	 */
 	vy_mem_pin(mem);
-	rc = vy_check_is_unique_secondary(env, NULL,
-			&env->xm->p_committed_read_view,
-			space_name, index_name, lsm, tuple);
+	rc = vy_check_is_unique_secondary(NULL, &env->xm->p_committed_read_view,
+					  space_name, index_name, lsm, tuple);
 	vy_mem_unpin(mem);
 	if (rc != 0)
 		return -1;
@@ -4219,7 +4208,6 @@ vinyl_space_build_index(struct space *src_space, struct index *new_index,
 
 	struct trigger on_replace;
 	struct vy_build_ctx ctx;
-	ctx.env = env;
 	ctx.lsm = new_lsm;
 	ctx.format = new_format;
 	ctx.space_name = space_name(src_space);
