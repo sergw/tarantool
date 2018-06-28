@@ -617,13 +617,16 @@ struct compareInfo {
 	u8 noCase;		/* true to ignore case differences */
 };
 
-/*
- * For LIKE and GLOB matching on EBCDIC machines, assume that every
- * character is exactly one byte in size.  Also, provde the Utf8Read()
- * macro for fast reading of the next character in the common case where
- * the next character is ASCII.
+/**
+ * Providing there are symbols in string s this
+ * macro returns UTF-8 code of character and
+ * promotes pointer to the next symbol in the string. 
+ * Otherwise return code is SQL_END_OF_STRING.
  */
-#define Utf8Read(s, e)    ucnv_getNextUChar(pUtf8conv, &s, e, &status)
+#define Utf8Read(s, e) (((s) < (e)) ?\
+	ucnv_getNextUChar(pUtf8conv, &s, e, &status) : 0)
+
+#define SQL_END_OF_STRING       0
 
 static const struct compareInfo globInfo = { '*', '?', '[', 0 };
 
@@ -698,29 +701,27 @@ patternCompare(const char * pattern,	/* The glob pattern */
 	const char * string_end = string + strlen(string);
 	UErrorCode status = U_ZERO_ERROR;
 
-	while (pattern < pattern_end){
-		c = Utf8Read(pattern, pattern_end);
+	while ((c = Utf8Read(pattern, pattern_end))) {
 		if (c == matchAll) {	/* Match "*" */
 			/* Skip over multiple "*" characters in the pattern.  If there
 			 * are also "?" characters, skip those as well, but consume a
 			 * single character of the input string for each "?" skipped
 			 */
-			while (pattern < pattern_end){
-				c = Utf8Read(pattern, pattern_end);
+			while ((c = Utf8Read(pattern, pattern_end))) {
 				if (c != matchAll && c != matchOne)
 					break;
-				if (c == matchOne
-				    && Utf8Read(string, string_end) == 0) {
+				if (c == matchOne &&
+				    Utf8Read(string, string_end) ==
+				    SQL_END_OF_STRING)
 					return SQLITE_NOWILDCARDMATCH;
-				}
 			}
 			/* "*" at the end of the pattern matches */
-			if (pattern == pattern_end)
+			if (c == SQL_END_OF_STRING)
 				return SQLITE_MATCH;
 			if (c == matchOther) {
 				if (pInfo->matchSet == 0) {
 					c = Utf8Read(pattern, pattern_end);
-					if (c == 0)
+					if (c == SQL_END_OF_STRING)
 						return SQLITE_NOWILDCARDMATCH;
 				} else {
 					/* "[...]" immediately follows the "*".  We have to do a slow
@@ -782,7 +783,7 @@ patternCompare(const char * pattern,	/* The glob pattern */
 		if (c == matchOther) {
 			if (pInfo->matchSet == 0) {
 				c = Utf8Read(pattern, pattern_end);
-				if (c == 0)
+				if (c == SQL_END_OF_STRING)
 					return SQLITE_NOMATCH;
 				zEscaped = pattern;
 			} else {
@@ -802,7 +803,7 @@ patternCompare(const char * pattern,	/* The glob pattern */
 						seen = 1;
 					c2 = Utf8Read(pattern, pattern_end);
 				}
-				while (c2 && c2 != ']') {
+				while (c2 != SQL_END_OF_STRING && c2 != ']') {
 					if (c2 == '-' && pattern[0] != ']'
 					    && pattern < pattern_end
 					    && prior_c > 0) {
@@ -839,7 +840,8 @@ patternCompare(const char * pattern,	/* The glob pattern */
 			    c == u_tolower(c2))
 				continue;
 		}
-		if (c == matchOne && pattern != zEscaped && c2 != 0)
+		if (c == matchOne && pattern != zEscaped &&
+		    c2 != SQL_END_OF_STRING)
 			continue;
 		return SQLITE_NOMATCH;
 	}
