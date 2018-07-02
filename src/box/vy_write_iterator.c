@@ -177,7 +177,16 @@ struct vy_write_iterator {
 	 * key and its tuple format is different.
 	 */
 	bool is_primary;
-
+	/** Callback for generating deferred DELETE statements. */
+	vy_deferred_delete_f deferred_delete_cb;
+	/** Context passed to @deferred_delete_cb. */
+	void *deferred_delete_ctx;
+	/**
+	 * Last scanned REPLACE or DELETE statement that was
+	 * inserted into the primary index without deletion
+	 * of the old tuple from secondary indexes.
+	 */
+	struct tuple *deferred_delete_stmt;
 	/** Length of the @read_views. */
 	int rv_count;
 	/**
@@ -327,9 +336,10 @@ static const struct vy_stmt_stream_iface vy_slice_stream_iface;
  */
 struct vy_stmt_stream *
 vy_write_iterator_new(const struct key_def *cmp_def,
-		      struct tuple_format *format,
-		      bool is_primary, bool is_last_level,
-		      struct rlist *read_views)
+		      struct tuple_format *format, bool is_primary,
+		      bool is_last_level, struct rlist *read_views,
+		      vy_deferred_delete_f deferred_delete_cb,
+		      void *deferred_delete_ctx)
 {
 	/*
 	 * One is reserved for INT64_MAX - maximal read view.
@@ -364,6 +374,8 @@ vy_write_iterator_new(const struct key_def *cmp_def,
 	tuple_format_ref(stream->format);
 	stream->is_primary = is_primary;
 	stream->is_last_level = is_last_level;
+	stream->deferred_delete_cb = deferred_delete_cb;
+	stream->deferred_delete_ctx = deferred_delete_ctx;
 	return &stream->base;
 }
 
@@ -398,6 +410,10 @@ vy_write_iterator_stop(struct vy_stmt_stream *vstream)
 	struct vy_write_src *src, *tmp;
 	rlist_foreach_entry_safe(src, &stream->src_list, in_src_list, tmp)
 		vy_write_iterator_delete_src(stream, src);
+	if (stream->deferred_delete_stmt != NULL) {
+		vy_stmt_unref_if_possible(stream->deferred_delete_stmt);
+		stream->deferred_delete_stmt = NULL;
+	}
 }
 
 /**
@@ -548,6 +564,62 @@ vy_write_iterator_pop_read_view_stmt(struct vy_write_iterator *stream)
 }
 
 /**
+ * Generate a DELETE statement for the given tuple if its
+ * deletion from secondary indexes was deferred.
+ *
+ * @param stream Write iterator.
+ * @param stmt Current statement.
+ *
+ * @retval  0 Success.
+ * @retval -1 Error.
+ */
+static int
+vy_write_iterator_deferred_delete(struct vy_write_iterator *stream,
+				  struct tuple *stmt)
+{
+	/*
+	 * Nothing to do if the caller isn't interested in
+	 * deferred DELETEs.
+	 */
+	if (stream->deferred_delete_cb == NULL)
+		return 0;
+	/*
+	 * UPSERTs cannot change secondary index parts neither
+	 * can they produce deferred DELETEs, so we skip them.
+	 */
+	if (vy_stmt_type(stmt) == IPROTO_UPSERT) {
+		assert((vy_stmt_flags(stmt) & VY_STMT_DEFERRED_DELETE) == 0);
+		return 0;
+	}
+	/*
+	 * Invoke the callback to generate a deferred DELETE
+	 * in case the current tuple was overwritten.
+	 */
+	if (stream->deferred_delete_stmt != NULL) {
+		if (vy_stmt_type(stmt) != IPROTO_DELETE &&
+		    stream->deferred_delete_cb(stmt,
+				stream->deferred_delete_stmt,
+				stream->deferred_delete_ctx) != 0)
+			return -1;
+		vy_stmt_unref_if_possible(stream->deferred_delete_stmt);
+		stream->deferred_delete_stmt = NULL;
+	}
+	/*
+	 * Remember the current statement if it is marked with
+	 * VY_STMT_DEFERRED_DELETE so that we can use it to
+	 * generate a DELETE for the overwritten tuple when this
+	 * function is called next time.
+	 */
+	if ((vy_stmt_flags(stmt) & VY_STMT_DEFERRED_DELETE) != 0) {
+		assert(vy_stmt_type(stmt) == IPROTO_DELETE ||
+		       vy_stmt_type(stmt) == IPROTO_REPLACE);
+		vy_stmt_ref_if_possible(stmt);
+		stream->deferred_delete_stmt = stmt;
+	}
+	return 0;
+}
+
+/**
  * Build the history of the current key.
  * Apply optimizations 1, 2 and 3 (@sa vy_write_iterator.h).
  * When building a history, some statements can be
@@ -572,6 +644,7 @@ vy_write_iterator_build_history(struct vy_write_iterator *stream,
 	*count = 0;
 	*is_first_insert = false;
 	assert(stream->stmt_i == -1);
+	assert(stream->deferred_delete_stmt == NULL);
 	struct heap_node *node = vy_source_heap_top(&stream->src_heap);
 	if (node == NULL)
 		return 0; /* no more data */
@@ -623,6 +696,10 @@ vy_write_iterator_build_history(struct vy_write_iterator *stream,
 			    !key_update_can_be_skipped(stmt_mask, key_mask))
 				*is_first_insert = true;
 		}
+
+		rc = vy_write_iterator_deferred_delete(stream, src->tuple);
+		if (rc != 0)
+			break;
 
 		if (vy_stmt_lsn(src->tuple) > current_rv_lsn) {
 			/*
@@ -702,6 +779,17 @@ next_lsn:
 		assert(src->tuple != NULL);
 		if (src->is_end_of_key)
 			break;
+	}
+
+	/*
+	 * No point in keeping the last VY_STMT_DEFERRED_DELETE
+	 * statement around if this is major compaction, because
+	 * there's no tuple it could overwrite.
+	 */
+	if (rc == 0 && stream->is_last_level &&
+	    stream->deferred_delete_stmt != NULL) {
+		vy_stmt_unref_if_possible(stream->deferred_delete_stmt);
+		stream->deferred_delete_stmt = NULL;
 	}
 
 	vy_source_heap_delete(&stream->src_heap, &end_of_key_src.heap_node);
@@ -788,6 +876,23 @@ vy_read_view_merge(struct vy_write_iterator *stream, struct tuple *hint,
 	rv->history = NULL;
 	result->tuple = NULL;
 	assert(result->next == NULL);
+	/*
+	 * The write iterator generates deferred DELETEs for all
+	 * VY_STMT_DEFERRED_DELETE statements, except, may be,
+	 * the last seen one. Clear the flag for all other output
+	 * statements so as not to generate the same DELETEs on
+	 * the next compaction.
+	 */
+	uint8_t flags = vy_stmt_flags(rv->tuple);
+	if (rv->tuple != stream->deferred_delete_stmt &&
+	    (flags & VY_STMT_DEFERRED_DELETE) != 0) {
+		if (!vy_stmt_is_refable(rv->tuple)) {
+			rv->tuple = vy_stmt_dup(rv->tuple);
+			if (rv->tuple == NULL)
+				return -1;
+		}
+		vy_stmt_set_flags(rv->tuple, flags & ~VY_STMT_DEFERRED_DELETE);
+	}
 	if (hint != NULL) {
 		/* Not the first statement. */
 		return 0;
@@ -912,6 +1017,24 @@ vy_write_iterator_next(struct vy_stmt_stream *vstream,
 	*ret = vy_write_iterator_pop_read_view_stmt(stream);
 	if (*ret != NULL)
 		return 0;
+	/*
+	 * If we didn't generate a deferred DELETE corresponding to
+	 * the last seen VY_STMT_DEFERRED_DELETE statement, we must
+	 * include it into the output, because there still might be
+	 * an overwritten tuple in an older source.
+	 */
+	if (stream->stmt_i >= 0 &&
+	    stream->deferred_delete_stmt != NULL &&
+	    vy_stmt_lsn(stream->deferred_delete_stmt) !=
+	    vy_write_iterator_get_vlsn(stream, stream->stmt_i)) {
+		stream->stmt_i = -1;
+		*ret = stream->deferred_delete_stmt;
+		return 0;
+	}
+	if (stream->deferred_delete_stmt != NULL) {
+		vy_stmt_unref_if_possible(stream->deferred_delete_stmt);
+		stream->deferred_delete_stmt = NULL;
+	}
 
 	/* Build the next key sequence. */
 	stream->stmt_i = -1;
