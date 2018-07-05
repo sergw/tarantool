@@ -36,6 +36,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <netdb.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -473,16 +474,86 @@ syslog_connect_unix(const char *path)
 	return fd;
 }
 
+/**
+ * Connect to remote syslogd using server:port.
+ * @param ip:port address string of remote host.
+ * @retval not 0 Socket descriptor.
+ * @retval    -1 Socket error.
+ */
+static int
+syslog_connect_remote(const char *server_address)
+{
+	struct addrinfo *inf, hints, *ptr;
+	const char *remote;
+	char *portnum, *copy;
+	int fd = -1;
+
+	copy = strdup(server_address);
+	if (copy == NULL) {
+		diag_set(OutOfMemory, strlen(server_address), "malloc",
+			 "stslog server address");
+		return fd;
+	}
+	portnum = copy;
+	remote = strsep(&portnum, ":");
+	if (remote == NULL) {
+		remote = strdup("514");
+		if (remote == NULL) {
+			diag_set(OutOfMemory, strlen(remote), "strdup",
+				 "port");
+			free(copy);
+			return fd;
+		}
+	}
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	hints.ai_flags = 0;
+
+	if (getaddrinfo(remote, portnum, NULL, &inf) < 0) {
+		free(copy);
+		return -1;
+	}
+	for (ptr = inf; ptr; ptr = ptr->ai_next) {
+		fd = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+		if (fd < 0) {
+			continue;
+		}
+
+		if (connect(fd, inf->ai_addr, inf->ai_addrlen) != 0) {
+			close(fd);
+			fd = -1;
+			continue;
+		}
+		break;
+	}
+	freeaddrinfo(inf);
+	free(copy);
+	return fd;
+}
+
 static inline int
 log_syslog_connect(struct log *log)
 {
+
 	/*
-	 * Try two locations: '/dev/log' for Linux and
+	 * If server option is not set use '/dev/log' for Linux and
 	 * '/var/run/syslog' for Mac.
 	 */
-	log->fd = syslog_connect_unix("/dev/log");
-	if (log->fd < 0)
-		log->fd = syslog_connect_unix("/var/run/syslog");
+	switch (log->server_type) {
+		case SAY_SYSLOG_UNIX:
+		      log->fd = syslog_connect_unix(log->path);
+		      break;
+		case SAY_SYSLOG_REMOTE:
+		      log->fd = syslog_connect_remote(log->path);
+		      break;
+		default:
+		      log->fd = syslog_connect_unix("/dev/log");
+		      if (log->fd < 0)
+			      log->fd = syslog_connect_unix("/var/run/syslog");
+
+	}
 	return log->fd;
 }
 
@@ -498,6 +569,17 @@ log_syslog_init(struct log *log, const char *init_str)
 	if (say_parse_syslog_opts(init_str, &opts) < 0)
 		return -1;
 
+	log->server_type = opts.syslog_server;
+	if (log->server_type == SAY_SYSLOG_DEFAULT)
+		log->path = NULL;
+	else {
+		log->path = strdup(opts.server);
+			if (log->path == NULL) {
+				diag_set(OutOfMemory, strlen(opts.server),
+				         "malloc", "server address");
+				return -1;
+		}
+	}
 	if (opts.identity == NULL)
 		log->syslog_ident = strdup("tarantool");
 	else
@@ -1044,6 +1126,8 @@ say_syslog_facility_by_name(const char *facility)
 int
 say_parse_syslog_opts(const char *init_str, struct say_syslog_opts *opts)
 {
+	opts->server = NULL;
+	opts->syslog_server = SAY_SYSLOG_DEFAULT;
 	opts->identity = NULL;
 	opts->facility = syslog_facility_MAX;
 	opts->copy = strdup(init_str);
@@ -1051,7 +1135,7 @@ say_parse_syslog_opts(const char *init_str, struct say_syslog_opts *opts)
 		diag_set(OutOfMemory, strlen(init_str), "malloc", "opts->copy");
 		return -1;
 	}
-	char *ptr = opts->copy;
+	char *ptr = opts->copy; 
 	const char *option, *value;
 
 	/* strsep() overwrites the separator with '\0' */
@@ -1060,7 +1144,18 @@ say_parse_syslog_opts(const char *init_str, struct say_syslog_opts *opts)
 			break;
 
 		value = option;
-		if (say_parse_prefix(&value, "identity=")) {
+		if (say_parse_prefix(&value, "server=")) {
+			if (opts->server != NULL ||
+			    opts->syslog_server != SAY_SYSLOG_DEFAULT)
+				goto duplicate;
+			if (say_parse_prefix(&value, "unix:")) {
+				opts->syslog_server = SAY_SYSLOG_UNIX;
+				opts->server = value;
+			} else {
+				opts->syslog_server = SAY_SYSLOG_REMOTE;
+				opts->server = value;
+			}
+		} else if (say_parse_prefix(&value, "identity=")) {
 			if (opts->identity != NULL)
 				goto duplicate;
 			opts->identity = value;

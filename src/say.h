@@ -79,6 +79,12 @@ say_log_level_is_enabled(int level)
 
 extern enum say_format log_format;
 
+enum say_logger_syslog_server {
+	SAY_SYSLOG_DEFAULT,
+	SAY_SYSLOG_UNIX,
+	SAY_SYSLOG_REMOTE
+};
+
 enum say_logger_type {
 	/**
 	 * Before the app server core is initialized, we do not
@@ -141,7 +147,10 @@ struct log {
 	/** The current log level. */
 	int level;
 	enum say_logger_type type;
-	/** path to file if logging to file. */
+	enum say_logger_syslog_server server_type;
+	/** Path to file if logging to file, socket
+	 *  or server address in case of syslog.
+	 */
 	char *path;
 	bool nonblock;
 	log_format_func_t format_func;
@@ -390,6 +399,8 @@ say_parse_logger_type(const char **str, enum say_logger_type *type);
 
 /** Syslog logger initialization params */
 struct say_syslog_opts {
+	enum say_logger_syslog_server syslog_server;
+	const char *server;
 	const char *identity;
 	enum syslog_facility facility;
 	/* Input copy (content unspecified). */
