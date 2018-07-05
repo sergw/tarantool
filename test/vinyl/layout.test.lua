@@ -7,6 +7,9 @@ xlog = require 'xlog'
 fun = require 'fun'
 
 space = box.schema.space.create('test', {engine='vinyl'})
+-- Install on_replace trigger to disable REPLACE/DELETE
+-- optimization in the secondary index (gh-2129).
+_ = space:on_replace(function() end)
 _ = space:create_index('pk', {parts = {{1, 'string', collation = 'unicode'}}, run_count_per_level=3})
 _ = space:create_index('sk', {parts = {{2, 'unsigned'}}, run_count_per_level=3})
 

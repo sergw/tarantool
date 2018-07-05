@@ -43,6 +43,8 @@
 #include "salad/heap.h"
 #include "salad/stailq.h"
 
+#include "vy_write_iterator.h" /* vy_deferred_delete_f */
+
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
@@ -144,6 +146,11 @@ struct vy_scheduler {
 	 * by the dump.
 	 */
 	vy_scheduler_dump_complete_f dump_complete_cb;
+	/**
+	 * Callback invoked in the tx thread for each deferred DELETE
+	 * statement generated during compaction.
+	 */
+	vy_deferred_delete_f deferred_delete_cb;
 	/** List of read views, see tx_manager::read_views. */
 	struct rlist *read_views;
 	/** Context needed for writing runs. */
@@ -156,6 +163,7 @@ struct vy_scheduler {
 void
 vy_scheduler_create(struct vy_scheduler *scheduler, int write_threads,
 		    vy_scheduler_dump_complete_f dump_complete_cb,
+		    vy_deferred_delete_f deferred_delete_cb,
 		    struct vy_run_env *run_env, struct rlist *read_views);
 
 /**

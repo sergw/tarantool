@@ -321,6 +321,9 @@ s:drop()
 --
 
 s = box.schema.space.create('test', {engine = 'vinyl'})
+-- Install on_replace trigger to disable REPLACE/DELETE
+-- optimization in the secondary index (gh-2129).
+_ = s:on_replace(function() end)
 s:bsize()
 i1 = s:create_index('i1', {parts = {1, 'unsigned'}, run_count_per_level = 1})
 i2 = s:create_index('i2', {parts = {2, 'unsigned'}, run_count_per_level = 1})

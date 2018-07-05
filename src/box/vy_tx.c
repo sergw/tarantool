@@ -536,6 +536,22 @@ vy_tx_prepare(struct vy_tx *tx)
 		if (v->is_overwritten)
 			continue;
 
+		if (lsm->index_id > 0 && repsert == NULL && delete == NULL) {
+			/*
+			 * This statement is for a secondary index,
+			 * and the statement corresponding to it in
+			 * the primary index was overwritten. This
+			 * can only happen if insertion of DELETE
+			 * into secondary indexes was postponed until
+			 * primary index compaction. In this case
+			 * the DELETE will not be propagated, because
+			 * the corresponding statement never made it
+			 * to the primary index LSM tree. So we must
+			 * skip it for secondary indexes as well.
+			 */
+			continue;
+		}
+
 		enum iproto_type type = vy_stmt_type(v->stmt);
 
 		/* Optimize out INSERT + DELETE for the same key. */
@@ -550,6 +566,16 @@ vy_tx_prepare(struct vy_tx *tx)
 			 */
 			type = IPROTO_INSERT;
 			vy_stmt_set_type(v->stmt, type);
+			/*
+			 * In case of INSERT, no statement was actually
+			 * overwritten so no need to generate a deferred
+			 * DELETE for secondary indexes.
+			 */
+			uint8_t flags = vy_stmt_flags(v->stmt);
+			if (flags & VY_STMT_DEFERRED_DELETE) {
+				vy_stmt_set_flags(v->stmt, flags &
+						  ~VY_STMT_DEFERRED_DELETE);
+			}
 		}
 
 		if (!v->is_first_insert && type == IPROTO_INSERT) {

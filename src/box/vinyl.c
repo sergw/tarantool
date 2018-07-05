@@ -65,6 +65,7 @@
 #include "engine.h"
 #include "space.h"
 #include "index.h"
+#include "schema.h"
 #include "xstream.h"
 #include "info.h"
 #include "column_mask.h"
@@ -1284,25 +1285,39 @@ vy_get_by_secondary_tuple(struct vy_lsm *lsm, struct vy_tx *tx,
 			  struct tuple *tuple, struct tuple **result)
 {
 	assert(lsm->index_id > 0);
-	/*
-	 * No need in vy_tx_track() as the tuple must already be
-	 * tracked in the secondary index LSM tree.
-	 */
+
 	if (vy_point_lookup(lsm->pk, tx, rv, tuple, result) != 0)
 		return -1;
 
-	if (*result == NULL) {
+	if (*result == NULL ||
+	    vy_tuple_compare(*result, tuple, lsm->key_def) != 0) {
 		/*
-		 * All indexes of a space must be consistent, i.e.
-		 * if a tuple is present in one index, it must be
-		 * present in all other indexes as well, so we can
-		 * get here only if there's a bug somewhere in vinyl.
-		 * Don't abort as core dump won't really help us in
-		 * this case. Just warn the user and proceed to the
-		 * next tuple.
+		 * If a tuple read from a secondary index doesn't
+		 * match the tuple corresponding to it in the
+		 * primary index, it must have been overwritten or
+		 * deleted, but the DELETE statement hasn't been
+		 * propagated to the secondary index yet. In this
+		 * case silently skip this tuple.
 		 */
-		say_warn("%s: key %s missing in primary index",
-			 vy_lsm_name(lsm), vy_stmt_str(tuple));
+		if (*result != NULL) {
+			tuple_unref(*result);
+			*result = NULL;
+		}
+		vy_cache_on_write(&lsm->cache, tuple, NULL);
+		return 0;
+	}
+
+	/*
+	 * Even though the tuple is tracked in the secondary index
+	 * read set, we still must track the full tuple read from
+	 * the primary index, otherwise the transaction won't be
+	 * aborted if this tuple is overwritten or deleted, because
+	 * the DELETE statement is not written to secondary indexes
+	 * immediately.
+	 */
+	if (tx != NULL && vy_tx_track_point(tx, lsm->pk, *result) != 0) {
+		tuple_unref(*result);
+		return -1;
 	}
 
 	if ((*rv)->vlsn == INT64_MAX)
@@ -1615,7 +1630,6 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	struct vy_lsm *lsm = vy_lsm_find_unique(space, request->index_id);
 	if (lsm == NULL)
 		return -1;
-	bool has_secondary = space->index_count > 1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
 	if (vy_unique_key_validate(lsm, key, part_count))
@@ -1625,12 +1639,9 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	 * before deletion.
 	 * - if the space has on_replace triggers and need to pass
 	 *   to them the old tuple.
-	 *
-	 * - if the space has one or more secondary indexes, then
-	 *   we need to extract secondary keys from the old tuple
-	 *   and pass them to indexes for deletion.
+	 * - if deletion is done by a secondary index.
 	 */
-	if (has_secondary || !rlist_empty(&space->on_replace)) {
+	if (lsm->index_id > 0 || !rlist_empty(&space->on_replace)) {
 		if (vy_get_by_raw_key(lsm, tx, vy_tx_read_view(tx),
 				      key, part_count, &stmt->old_tuple) != 0)
 			return -1;
@@ -1639,8 +1650,7 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	}
 	int rc = 0;
 	struct tuple *delete;
-	if (has_secondary) {
-		assert(stmt->old_tuple != NULL);
+	if (stmt->old_tuple != NULL) {
 		delete = vy_stmt_new_surrogate_delete(pk->mem_format,
 						      stmt->old_tuple);
 		if (delete == NULL)
@@ -1653,12 +1663,14 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 			if (rc != 0)
 				break;
 		}
-	} else { /* Primary is the single index in the space. */
+	} else {
 		assert(lsm->index_id == 0);
 		delete = vy_stmt_new_surrogate_delete_from_key(request->key,
 						pk->key_def, pk->mem_format);
 		if (delete == NULL)
 			return -1;
+		if (space->index_count > 1)
+			vy_stmt_set_flags(delete, VY_STMT_DEFERRED_DELETE);
 		rc = vy_tx_set(tx, pk, delete);
 	}
 	tuple_unref(delete);
@@ -2177,11 +2189,9 @@ vy_replace(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	/*
 	 * Get the overwritten tuple from the primary index if
 	 * the space has on_replace triggers, in which case we
-	 * need to pass the old tuple to trigger callbacks, or
-	 * if the space has secondary indexes and so we need
-	 * the old tuple to delete it from them.
+	 * need to pass the old tuple to trigger callbacks.
 	 */
-	if (space->index_count > 1 || !rlist_empty(&space->on_replace)) {
+	if (!rlist_empty(&space->on_replace)) {
 		if (vy_get(pk, tx, vy_tx_read_view(tx),
 			   stmt->new_tuple, &stmt->old_tuple) != 0)
 			return -1;
@@ -2192,6 +2202,8 @@ vy_replace(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 			 */
 			vy_stmt_set_type(stmt->new_tuple, IPROTO_INSERT);
 		}
+	} else if (space->index_count > 1) {
+		vy_stmt_set_flags(stmt->new_tuple, VY_STMT_DEFERRED_DELETE);
 	}
 	/*
 	 * Replace in the primary index without explicit deletion
@@ -2455,6 +2467,71 @@ vinyl_engine_rollback_statement(struct engine *engine, struct txn *txn,
 
 /* }}} Public API of transaction control */
 
+/* {{{ Deferred DELETE handling */
+
+static int
+vy_deferred_delete_one(struct vy_lsm *lsm, struct tuple *delete,
+		       struct tuple *old_stmt, struct tuple *new_stmt,
+		       const struct tuple **region_stmt)
+{
+	if (vy_stmt_type(new_stmt) == IPROTO_REPLACE &&
+	    vy_tuple_compare(old_stmt, new_stmt, lsm->key_def) == 0)
+		return 0;
+	if (unlikely(lsm->mem->space_cache_version != space_cache_version ||
+		     lsm->mem->generation != *lsm->env->p_generation)) {
+		if (vy_lsm_rotate_mem(lsm) != 0)
+			return -1;
+	}
+	if (vy_lsm_set(lsm, lsm->mem, delete, region_stmt) != 0)
+		return -1;
+	vy_lsm_commit_stmt(lsm, lsm->mem, *region_stmt);
+	return 0;
+}
+
+static int
+vy_deferred_delete(struct tuple *old_stmt, struct tuple *new_stmt, void *arg)
+{
+	struct vy_lsm *pk = arg;
+	assert(pk->index_id == 0);
+	if (pk->is_dropped)
+		return 0;
+	struct space *space = space_by_id(pk->space_id);
+	if (space == NULL)
+		return 0;
+	if (space->index_count <= 1)
+		return 0;
+
+	struct tuple *delete;
+	delete = vy_stmt_new_surrogate_delete(pk->mem_format, old_stmt);
+	if (delete == NULL)
+		return -1;
+
+	vy_stmt_set_lsn(delete, vy_stmt_lsn(new_stmt));
+	vy_stmt_set_flags(delete, VY_STMT_SKIP_READ);
+
+	int rc = 0;
+	struct vy_env *env = container_of(pk->env, struct vy_env, lsm_env);
+	size_t mem_used_before = lsregion_used(&env->mem_env.allocator);
+
+	const struct tuple *region_stmt = NULL;
+	for (uint32_t i = 1; i < space->index_count; i++) {
+		struct vy_lsm *lsm = vy_lsm(space_index(space, i));
+		rc = vy_deferred_delete_one(lsm, delete, old_stmt, new_stmt,
+					    &region_stmt);
+		if (rc != 0)
+			break;
+	}
+
+	size_t mem_used_after = lsregion_used(&env->mem_env.allocator);
+	assert(mem_used_after >= mem_used_before);
+	vy_quota_force_use(&env->quota, mem_used_after - mem_used_before);
+
+	tuple_unref(delete);
+	return rc;
+}
+
+/* }}} Deferred DELETE handling */
+
 /** {{{ Environment */
 
 static void
@@ -2616,7 +2693,7 @@ vy_env_new(const char *path, size_t memory,
 
 	vy_mem_env_create(&e->mem_env, e->memory);
 	vy_scheduler_create(&e->scheduler, e->write_threads,
-			    vy_env_dump_complete_cb,
+			    vy_env_dump_complete_cb, vy_deferred_delete,
 			    &e->run_env, &e->xm->read_views);
 
 	if (vy_lsm_env_create(&e->lsm_env, e->path,
