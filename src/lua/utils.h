@@ -1,5 +1,6 @@
 #ifndef TARANTOOL_LUA_UTILS_H_INCLUDED
 #define TARANTOOL_LUA_UTILS_H_INCLUDED
+#pragma GCC diagnostic ignored "-Wunused-variable"
 /*
  * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -239,6 +240,35 @@ luaL_checkserializer(struct lua_State *L) {
 	return (struct luaL_serializer *)
 		luaL_checkudata(L, lua_upvalueindex(1), LUAL_SERIALIZER);
 }
+
+#define OPTION(type, name, defvalue) { #name, \
+	offsetof(struct luaL_serializer, name), type, defvalue}
+/**
+ * Configuration options for serializers
+ * @sa struct luaL_serializer
+ */
+static struct {
+	const char *name;
+	size_t offset; /* offset in structure */
+	int type;
+	int defvalue;
+} OPTIONS[] = {
+	OPTION(LUA_TBOOLEAN, encode_sparse_convert, 1),
+	OPTION(LUA_TNUMBER,  encode_sparse_ratio, 2),
+	OPTION(LUA_TNUMBER,  encode_sparse_safe, 10),
+	OPTION(LUA_TNUMBER,  encode_max_depth, 32),
+	OPTION(LUA_TBOOLEAN, encode_invalid_numbers, 1),
+	OPTION(LUA_TNUMBER,  encode_number_precision, 14),
+	OPTION(LUA_TBOOLEAN, encode_load_metatables, 1),
+	OPTION(LUA_TBOOLEAN, encode_use_tostring, 0),
+	OPTION(LUA_TBOOLEAN, encode_invalid_as_nil, 0),
+	OPTION(LUA_TBOOLEAN, decode_invalid_numbers, 1),
+	OPTION(LUA_TBOOLEAN, decode_save_metatables, 1),
+	OPTION(LUA_TNUMBER,  decode_max_depth, 32),
+	{ NULL, 0, 0, 0},
+};
+
+int* parse_option(lua_State *l, int i, struct luaL_serializer* cfg);
 
 /** A single value on the Lua stack. */
 struct luaL_field {

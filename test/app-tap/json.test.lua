@@ -22,7 +22,42 @@ end
 
 tap.test("json", function(test)
     local serializer = require('json')
-    test:plan(9)
+    test:plan(18)
+
+-- gh-2888 Added opions to encode().
+
+    local sub = {a = 1, { b = {c = 1, d = {e = 1}}}}
+    serializer.cfg({encode_max_depth = 1})
+    test:ok(serializer.encode(sub) == '{"1":null,"a":1}',
+            'sub == {"1":null,"a":1}')
+    serializer.cfg({encode_max_depth = 2})
+    test:ok(serializer.encode(sub) == '{"1":{"b":null},"a":1}',
+            'sub == {"1":{"b":null},"a":1}')
+    serializer.cfg({encode_max_depth = 2})
+    test:ok(serializer.encode(sub,{encode_max_depth = 1})
+            == '{"1":null,"a":1}', 'sub == {"1":null,"a":1}')
+
+    local nan = 1/0
+    test:ok(serializer.encode({a = nan}) == '{"a":inf}',
+                              'a = nan == {"a":inf}')
+    serializer.cfg({encode_invalid_numbers = false})
+    test:ok(pcall(serializer.encode, {a = nan}) == false,
+            'error when "encode_invalid_numbers = false" with NaN')
+    serializer.cfg({encode_invalid_numbers = true})
+    test:ok(pcall(serializer.encode, {a = nan},
+            {encode_invalid_numbers = false}) == false,
+            'error when "encode_invalid_numbers = false" with NaN')
+
+    local number = 0.12345
+    test:ok(serializer.encode({a = number}) == '{"a":0.12345}',
+            'precision more than 5')
+    serializer.cfg({encode_number_precision = 3})
+    test:ok(serializer.encode({a = number}) == '{"a":0.123}',
+            'precision is 3')
+    serializer.cfg({encode_number_precision = 14})
+    test:ok(serializer.encode({a = number},
+            {encode_number_precision = 3}) == '{"a":0.123}', 'precision is 3')
+
     test:test("unsigned", common.test_unsigned, serializer)
     test:test("signed", common.test_signed, serializer)
     test:test("double", common.test_double, serializer)

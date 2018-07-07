@@ -186,34 +186,6 @@ luaL_setcdatagc(struct lua_State *L, int idx)
 	lua_pop(L, 1);
 }
 
-
-#define OPTION(type, name, defvalue) { #name, \
-	offsetof(struct luaL_serializer, name), type, defvalue}
-/**
- * Configuration options for serializers
- * @sa struct luaL_serializer
- */
-static struct {
-	const char *name;
-	size_t offset; /* offset in structure */
-	int type;
-	int defvalue;
-} OPTIONS[] = {
-	OPTION(LUA_TBOOLEAN, encode_sparse_convert, 1),
-	OPTION(LUA_TNUMBER,  encode_sparse_ratio, 2),
-	OPTION(LUA_TNUMBER,  encode_sparse_safe, 10),
-	OPTION(LUA_TNUMBER,  encode_max_depth, 32),
-	OPTION(LUA_TBOOLEAN, encode_invalid_numbers, 1),
-	OPTION(LUA_TNUMBER,  encode_number_precision, 14),
-	OPTION(LUA_TBOOLEAN, encode_load_metatables, 1),
-	OPTION(LUA_TBOOLEAN, encode_use_tostring, 0),
-	OPTION(LUA_TBOOLEAN, encode_invalid_as_nil, 0),
-	OPTION(LUA_TBOOLEAN, decode_invalid_numbers, 1),
-	OPTION(LUA_TBOOLEAN, decode_save_metatables, 1),
-	OPTION(LUA_TNUMBER,  decode_max_depth, 32),
-	{ NULL, 0, 0, 0},
-};
-
 /**
  * @brief serializer.cfg{} Lua binding for serializers.
  * serializer.cfg is a table that contains current configuration values from
@@ -224,6 +196,33 @@ static struct {
  * @param L lua stack
  * @return 0
  */
+
+/*Serialize one option. Returns ponter to the value of option.*/
+int* parse_option(lua_State *L, int i, struct luaL_serializer* cfg) {
+	lua_getfield(L, 2, OPTIONS[i].name);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1); /* key hasn't changed */
+		return NULL;
+	}
+	/*
+	 * Update struct luaL_serializer using pointer to a
+	 * configuration value (all values must be `int` for that).
+	 */
+	int *pval = (int *) ((char *) cfg + OPTIONS[i].offset);
+	/* Update struct luaL_serializer structure */
+	switch (OPTIONS[i].type) {
+	case LUA_TBOOLEAN:
+		*pval = lua_toboolean(L, -1);
+		break;
+	case LUA_TNUMBER:
+		*pval = lua_tointeger(L, -1);
+		break;
+	default:
+		unreachable();
+	}
+	return pval;
+}
+
 static int
 luaL_serializer_cfg(lua_State *L)
 {
@@ -232,31 +231,22 @@ luaL_serializer_cfg(lua_State *L)
 	struct luaL_serializer *cfg = luaL_checkserializer(L);
 	/* Iterate over all available options and checks keys in passed table */
 	for (int i = 0; OPTIONS[i].name != NULL; i++) {
-		lua_getfield(L, 2, OPTIONS[i].name);
-		if (lua_isnil(L, -1)) {
-			lua_pop(L, 1); /* key hasn't changed */
-			continue;
-		}
-		/*
-		 * Update struct luaL_serializer using pointer to a
-		 * configuration value (all values must be `int` for that).
-		 */
-		int *pval = (int *) ((char *) cfg + OPTIONS[i].offset);
+		int* pval = parse_option(L, i, cfg);
 		/* Update struct luaL_serializer structure */
-		switch (OPTIONS[i].type) {
-		case LUA_TBOOLEAN:
-			*pval = lua_toboolean(L, -1);
-			lua_pushboolean(L, *pval);
-			break;
-		case LUA_TNUMBER:
-			*pval = lua_tointeger(L, -1);
-			lua_pushinteger(L, *pval);
-			break;
-		default:
-			unreachable();
+		if (pval != NULL) {
+			switch (OPTIONS[i].type) {
+			case LUA_TBOOLEAN:
+					lua_pushboolean(L, *pval);
+				break;
+			case LUA_TNUMBER:
+				lua_pushinteger(L, *pval);
+				break;
+			default:
+				unreachable();
+			}
+			/* Save normalized value to serializer.cfg table */
+			lua_setfield(L, 1, OPTIONS[i].name);
 		}
-		/* Save normalized value to serializer.cfg table */
-		lua_setfield(L, 1, OPTIONS[i].name);
 	}
 	return 0;
 }
