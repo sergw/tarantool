@@ -52,6 +52,7 @@
 #include "identifier.h"
 #include "version.h"
 #include "sequence.h"
+#include "promote.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -2918,10 +2919,39 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 }
 
 static void
+on_commit_dd_promotion(struct trigger *trigger, void *event)
+{
+	(void) trigger;
+	struct txn_stmt *stmt = txn_last_stmt((struct txn *) event);
+	assert(stmt->new_tuple != NULL);
+	assert(stmt->old_tuple == NULL);
+	struct promote_msg msg;
+	promote_msg_decode(tuple_data(stmt->new_tuple), &msg);
+	promote_process(&msg);
+}
+
+static void
 on_replace_dd_promotion(struct trigger *trigger, void *event)
 {
 	(void) trigger;
-	(void) event;
+	struct txn *txn = (struct txn *) event;
+	txn_check_singlestatement_xc(txn, "Space _promotion");
+	struct txn_stmt *stmt = txn_current_stmt(txn);
+	if (stmt->old_tuple != NULL) {
+		if (stmt->new_tuple != NULL) {
+			tnt_raise(ClientError, ER_UNSUPPORTED, "Tarantool",
+				  "promotion history change");
+		}
+		return;
+	}
+	assert(stmt->new_tuple != NULL);
+	/* Decode for sanity checks. */
+	struct promote_msg msg;
+	if (promote_msg_decode(tuple_data(stmt->new_tuple), &msg) != 0)
+		diag_raise();
+	struct trigger *on_commit =
+		txn_alter_trigger_new(on_commit_dd_promotion, NULL);
+	txn_on_commit(txn, on_commit);
 }
 
 /* }}} cluster configuration */

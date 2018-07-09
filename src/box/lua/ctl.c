@@ -39,6 +39,8 @@
 #include "lua/utils.h"
 
 #include "box/box.h"
+#include "box/promote.h"
+#include "box/error.h"
 
 static int
 lbox_ctl_wait_ro(struct lua_State *L)
@@ -64,9 +66,57 @@ lbox_ctl_wait_rw(struct lua_State *L)
 	return 0;
 }
 
+static int
+lbox_ctl_promote(struct lua_State *L)
+{
+	int quorum = -1;
+	double timeout = TIMEOUT_INFINITY;
+	int top = lua_gettop(L);
+	if (top > 1) {
+usage_error:
+		return luaL_error(L, "Usage: box.ctl.promote([{timeout = "\
+				  "<double>, quorum = <unsigned>}])");
+	} else if (top == 1) {
+		lua_getfield(L, 1, "quorum");
+		int ok;
+		if (! lua_isnil(L, -1)) {
+			quorum = lua_tointegerx(L, -1, &ok);
+			if (ok == 0)
+				goto usage_error;
+		}
+		lua_getfield(L, 1, "timeout");
+		if (! lua_isnil(L, -1)) {
+			timeout = lua_tonumberx(L, -1, &ok);
+			if (ok == 0)
+				goto usage_error;
+		}
+	}
+	if (box_ctl_promote(timeout, quorum) != 0) {
+		lua_pushnil(L);
+		luaT_pusherror(L, box_error_last());
+		return 2;
+	} else {
+		lua_pushboolean(L, true);
+		return 1;
+	}
+}
+
+static int
+lbox_ctl_promote_reset(struct lua_State *L)
+{
+	if (box_ctl_promote_reset() != 0) {
+		lua_pushnil(L);
+		luaT_pusherror(L, box_error_last());
+		return 2;
+	}
+	return 0;
+}
+
 static const struct luaL_Reg lbox_ctl_lib[] = {
 	{"wait_ro", lbox_ctl_wait_ro},
 	{"wait_rw", lbox_ctl_wait_rw},
+	{"promote", lbox_ctl_promote},
+	{"promote_reset", lbox_ctl_promote_reset},
 	{NULL, NULL}
 };
 
