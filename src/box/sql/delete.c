@@ -126,7 +126,7 @@ sql_table_delete_from(struct Parse *parse, struct SrcList *tab_list,
 		assert(space != NULL);
 		trigger_list = sql_triggers_exist(table, TK_DELETE, NULL, NULL);
 		is_complex = trigger_list != NULL ||
-			     sqlite3FkRequired(table, NULL);
+			fkey_is_required(table->def->id, NULL);
 	}
 	assert(space != NULL);
 
@@ -452,14 +452,14 @@ sql_generate_row_delete(struct Parse *parse, struct Table *table,
 	 * use for the old.* references in the triggers.
 	 */
 	if (table != NULL &&
-	    (sqlite3FkRequired(table, NULL) || trigger_list != NULL)) {
+	    (fkey_is_required(table->def->id, NULL) || trigger_list != NULL)) {
 		/* Mask of OLD.* columns in use */
 		/* TODO: Could use temporary registers here. */
 		uint32_t mask =
 			sql_trigger_colmask(parse, trigger_list, 0, 0,
 					    TRIGGER_BEFORE | TRIGGER_AFTER,
 					    table, onconf);
-		mask |= sqlite3FkOldmask(parse, table);
+		mask |= fkey_old_mask(table->def->id);
 		first_old_reg = parse->nMem + 1;
 		parse->nMem += (1 + (int)table->def->field_count);
 

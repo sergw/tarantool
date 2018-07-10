@@ -150,7 +150,6 @@ sqlite3AlterFinishAddColumn(Parse * pParse, Token * pColDef)
 	Expr *pDflt;		/* Default value for the new column */
 	sqlite3 *db;		/* The database connection; */
 	Vdbe *v = pParse->pVdbe;	/* The prepared statement under construction */
-	struct session *user_session = current_session();
 
 	db = pParse->db;
 	if (pParse->nErr || db->mallocFailed)
@@ -187,12 +186,6 @@ sqlite3AlterFinishAddColumn(Parse * pParse, Token * pColDef)
 	}
 	if (pNew->pIndex) {
 		sqlite3ErrorMsg(pParse, "Cannot add a UNIQUE column");
-		return;
-	}
-	if ((user_session->sql_flags & SQLITE_ForeignKeys) && pNew->pFKey
-	    && pDflt) {
-		sqlite3ErrorMsg(pParse,
-				"Cannot add a REFERENCES column with non-NULL default value");
 		return;
 	}
 	assert(pNew->def->fields[pNew->def->field_count - 1].is_nullable ==

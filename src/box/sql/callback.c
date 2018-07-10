@@ -294,7 +294,6 @@ sqlite3SchemaClear(sqlite3 * db)
 		sqlite3DeleteTable(0, pTab);
 	}
 	sqlite3HashClear(&temp1);
-	sqlite3HashClear(&pSchema->fkeyHash);
 
 	db->pSchema = NULL;
 }
@@ -309,7 +308,6 @@ sqlite3SchemaCreate(sqlite3 * db)
 		sqlite3OomFault(db);
 	} else {
 		sqlite3HashInit(&p->tblHash);
-		sqlite3HashInit(&p->fkeyHash);
 	}
 	return p;
 }

@@ -47,6 +47,7 @@
 #include "vdbeInt.h"
 #include "tarantoolInt.h"
 #include "box/box.h"
+#include "box/fkey.h"
 #include "box/sequence.h"
 #include "box/session.h"
 #include "box/identifier.h"
@@ -372,9 +373,6 @@ deleteTable(sqlite3 * db, Table * pTable)
 		}
 		freeIndex(db, pIndex);
 	}
-
-	/* Delete any foreign keys attached to this table. */
-	sqlite3FkDelete(db, pTable);
 
 	/* Delete the Table structure itself.
 	 */
@@ -1743,6 +1741,95 @@ emitNewSysSpaceSequenceRecord(Parse *pParse, int space_id, const char reg_seq_id
 	return first_col;
 }
 
+/**
+ * Generate opcodes to serialize foreign key into MgsPack and
+ * insert produced tuple into _fk_constraint space.
+ *
+ * @param parse_context Parsing context.
+ * @param fk Foreign key to be created.
+ */
+static void
+vdbe_fkey_code_creation(struct Parse *parse_context, const struct fkey_def *fk)
+{
+	assert(parse_context != NULL);
+	assert(fk != NULL);
+	struct Vdbe *vdbe = sqlite3GetVdbe(parse_context);
+	assert(vdbe != NULL);
+	/*
+	 * Occupy registers for 8 fields: each member in
+	 * _constraint space plus one for final msgpack tuple.
+	 */
+	int constr_tuple_reg = sqlite3GetTempRange(parse_context, 9);
+	const char *name_copy = sqlite3DbStrDup(parse_context->db, fk->name);
+	if (name_copy == NULL)
+		return;
+	sqlite3VdbeAddOp4(vdbe, OP_String8, 0, constr_tuple_reg, 0, name_copy,
+			  P4_DYNAMIC);
+	/*
+	 * In case we are adding FK constraints during execution
+	 * of <CREATE TABLE ...> statement, we don't have child
+	 * id, but we know register where it will be stored.
+	 * */
+	if (parse_context->pNewTable != NULL) {
+		sqlite3VdbeAddOp2(vdbe, OP_SCopy, fk->child_id,
+				  constr_tuple_reg + 1);
+	} else {
+		sqlite3VdbeAddOp2(vdbe, OP_Integer, fk->child_id,
+				  constr_tuple_reg + 1);
+	}
+	if (parse_context->pNewTable != NULL && fkey_is_self_referenced(fk)) {
+		sqlite3VdbeAddOp2(vdbe, OP_SCopy, fk->parent_id,
+				  constr_tuple_reg + 2);
+	} else {
+		sqlite3VdbeAddOp2(vdbe, OP_Integer, fk->parent_id,
+				  constr_tuple_reg + 2);
+	}
+	sqlite3VdbeAddOp2(vdbe, OP_Bool, 0, constr_tuple_reg + 3);
+	sqlite3VdbeChangeP4(vdbe, -1, (char*)&fk->is_deferred, P4_BOOL);
+	sqlite3VdbeAddOp4(vdbe, OP_String8, 0, constr_tuple_reg + 4, 0,
+			  fkey_match_strs[fk->match], P4_STATIC);
+	sqlite3VdbeAddOp4(vdbe, OP_String8, 0, constr_tuple_reg + 5, 0,
+			  fkey_action_strs[fk->on_delete], P4_STATIC);
+	sqlite3VdbeAddOp4(vdbe, OP_String8, 0, constr_tuple_reg + 6, 0,
+			  fkey_action_strs[fk->on_update], P4_STATIC);
+	size_t encoded_links_sz = fkey_encode_links(fk, NULL) + 1;
+	char *encoded_links = sqlite3DbMallocRaw(parse_context->db,
+						 encoded_links_sz);
+	if (encoded_links == NULL) {
+		free((void *) name_copy);
+		return;
+	}
+	size_t real_links_sz = fkey_encode_links(fk, encoded_links);
+	encoded_links[real_links_sz] = '\0';
+	sqlite3VdbeAddOp4(vdbe, OP_Blob, real_links_sz, constr_tuple_reg + 7,
+			  SQL_SUBTYPE_MSGPACK, encoded_links, P4_DYNAMIC);
+	sqlite3VdbeAddOp3(vdbe, OP_MakeRecord, constr_tuple_reg, 8,
+			  constr_tuple_reg + 8);
+	sqlite3VdbeAddOp2(vdbe, OP_SInsert, BOX_FK_CONSTRAINT_ID,
+			  constr_tuple_reg + 8);
+	sqlite3VdbeChangeP5(vdbe, OPFLAG_NCHANGE);
+	sqlite3ReleaseTempRange(parse_context, constr_tuple_reg, 9);
+}
+
+static int
+resolve_link(struct Parse *parse_context, const struct space_def *def,
+	     const char *field_name, uint32_t *link)
+{
+	assert(link != NULL);
+	uint32_t j;
+	for (j = 0; j < def->field_count; ++j) {
+		if (strcmp(field_name, def->fields[j].name) == 0) {
+			*link = j;
+			break;
+		}
+	}
+	if (j == def->field_count) {
+		sqlite3ErrorMsg(parse_context, "no such column %s", field_name);
+		return -1;
+	}
+	return 0;
+}
+
 /*
  * This routine is called to report the final ")" that terminates
  * a CREATE TABLE statement.
@@ -1913,6 +2000,39 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 
 		/* Reparse everything to update our internal data structures */
 		parseTableSchemaRecord(pParse, iSpaceId, zStmt);	/* consumes zStmt */
+
+		/* Code creation of FK constraints, if any. */
+		struct fkey_parse *fk_parse = pParse->new_fkey;
+		while (fk_parse != NULL) {
+			struct fkey_def *fk = fk_parse->fkey;
+			if (fk_parse->selfref_cols != NULL) {
+				struct ExprList *cols = fk_parse->selfref_cols;
+				for (uint32_t i = 0; i < fk->field_count; ++i) {
+					if (resolve_link(pParse, p->def,
+							 cols->a[i].zName,
+							 &fk->links[i].parent_field) != 0)
+						return;
+				}
+				fk->parent_id = iSpaceId;
+			} else if (fk_parse->is_self_referenced) {
+				struct Index *pk = sqlite3PrimaryKeyIndex(p);
+				if (pk->nColumn != fk->field_count) {
+					sqlite3ErrorMsg(pParse,
+							"number of columns in foreign key does "
+							"not match the number of columns in "
+							"the referenced table");
+					return;
+				}
+				for (uint32_t i = 0; i < fk->field_count; ++i) {
+					fk->links[i].parent_field =
+						pk->aiColumn[i];
+				}
+				fk->parent_id = iSpaceId;
+			}
+			fk->child_id = iSpaceId;
+			vdbe_fkey_code_creation(pParse, fk);
+			fk_parse = fk_parse->next;
+		}
 	}
 
 	/* Add the table to the in-memory representation of the database.
@@ -2086,6 +2206,32 @@ sql_clear_stat_spaces(Parse *parse, const char *table_name,
 }
 
 /**
+ * Generate VDBE program to remove entry from _fk_constraint space.
+ *
+ * @param parse_context Parsing context.
+ * @param constraint_name Name of FK constraint to be dropped.
+ *        Must be allocated on head by sqlite3DbMalloc().
+ *        It will be freed in VDBE.
+ * @param child_id Id of table which constraint belongs to.
+ */
+static void
+vdbe_fkey_code_drop(struct Parse *parse_context, const char *constraint_name,
+		    uint32_t child_id)
+{
+	struct Vdbe *vdbe = sqlite3GetVdbe(parse_context);
+	assert(vdbe != NULL);
+	int key_reg = sqlite3GetTempRange(parse_context, 3);
+	sqlite3VdbeAddOp4(vdbe, OP_String8, 0, key_reg, 0, constraint_name,
+			  P4_DYNAMIC);
+	sqlite3VdbeAddOp2(vdbe, OP_Integer, child_id,  key_reg + 1);
+	sqlite3VdbeAddOp3(vdbe, OP_MakeRecord, key_reg, 2, key_reg + 2);
+	sqlite3VdbeAddOp2(vdbe, OP_SDelete, BOX_FK_CONSTRAINT_ID, key_reg + 2);
+	sqlite3VdbeChangeP5(vdbe, OPFLAG_NCHANGE);
+	VdbeComment((vdbe, "Delete FK constraint %s", constraint_name));
+	sqlite3ReleaseTempRange(parse_context, key_reg, 3);
+}
+
+/**
  * Generate code to drop a table.
  * This routine includes dropping triggers, sequences,
  * all indexes and entry from _space space.
@@ -2141,6 +2287,15 @@ sql_code_drop_table(struct Parse *parse_context, struct space *space,
 				  idx_rec_reg);
 		sqlite3VdbeAddOp2(v, OP_SDelete, BOX_SEQUENCE_ID, idx_rec_reg);
 		VdbeComment((v, "Delete entry from _sequence"));
+	}
+	/* Delete all child FK constraints. */
+	for (struct fkey *child_fk = space->child_fkey; child_fk != NULL;
+	     child_fk = child_fk->fkey_child_next) {
+		const char *fk_name_dup = sqlite3DbStrDup(v->db,
+							  child_fk->def->name);
+		if (fk_name_dup == NULL)
+			return;
+		vdbe_fkey_code_drop(parse_context, fk_name_dup, space_id);
 	}
 	/*
 	 * Drop all _space and _index entries that refer to the
@@ -2256,12 +2411,16 @@ sql_drop_table(struct Parse *parse_context, struct SrcList *table_name_list,
 	 *    removing indexes from _index space and eventually
 	 *    tuple with corresponding space_id from _space.
 	 */
-	struct Table *tab = sqlite3HashFind(&db->pSchema->tblHash, space_name);
-	struct FKey *fk = sqlite3FkReferences(tab);
-	if (fk != NULL && strcmp(fk->pFrom->def->name, tab->def->name) != 0) {
-		sqlite3ErrorMsg(parse_context, "can't drop parent table %s when "
-				"child table refers to it", space_name);
-		goto exit_drop_table;
+	if (space_fkey_check_references(space)) {
+		for (struct fkey *fk = space->parent_fkey; fk != NULL;
+		     fk = fk->fkey_parent_next) {
+			if (fkey_is_self_referenced(fk->def))
+				continue;
+			sqlite3ErrorMsg(parse_context, "can't drop table %s: "
+					"other objects depend on it",
+					space->def->name);
+			goto exit_drop_table;
+		}
 	}
 	sql_clear_stat_spaces(parse_context, space_name, NULL);
 	sql_code_drop_table(parse_context, space, is_view);
@@ -2270,176 +2429,276 @@ sql_drop_table(struct Parse *parse_context, struct SrcList *table_name_list,
 	sqlite3SrcListDelete(db, table_name_list);
 }
 
-/*
- * This routine is called to create a new foreign key on the table
- * currently under construction.  pFromCol determines which columns
- * in the current table point to the foreign key.  If pFromCol==0 then
- * connect the key to the last column inserted.  pTo is the name of
- * the table referred to (a.k.a the "parent" table).  pToCol is a list
- * of tables in the parent pTo table.  flags contains all
- * information about the conflict resolution algorithms specified
- * in the ON DELETE, ON UPDATE and ON INSERT clauses.
+/**
+ * Return ordinal number of column by name. In case of error,
+ * set error message.
  *
- * An FKey structure is created and added to the table currently
- * under construction in the pParse->pNewTable field.
+ * @param parse_context Parsing context.
+ * @param space Space which column belongs to.
+ * @param column_name Name of column to investigate.
+ * @param[out] colno Found name of column.
  *
- * The foreign key is set for IMMEDIATE processing.  A subsequent call
- * to sqlite3DeferForeignKey() might change this to DEFERRED.
+ * @retval 0 on success, -1 on fault.
  */
-void
-sqlite3CreateForeignKey(Parse * pParse,	/* Parsing context */
-			ExprList * pFromCol,	/* Columns in this table that point to other table */
-			Token * pTo,	/* Name of the other table */
-			ExprList * pToCol,	/* Columns in the other table */
-			int flags	/* Conflict resolution algorithms. */
-    )
+static int
+columnno_by_name(struct Parse *parse_context, const struct space *space,
+		 const char *column_name, uint32_t *colno)
 {
-	sqlite3 *db = pParse->db;
-#ifndef SQLITE_OMIT_FOREIGN_KEY
-	FKey *pFKey = 0;
-	FKey *pNextTo;
-	Table *p = pParse->pNewTable;
-	int nByte;
-	int i;
-	int nCol;
-	char *z;
-
-	assert(pTo != 0);
-	char *normilized_name = strndup(pTo->z, pTo->n);
-	if (normilized_name == NULL) {
-		diag_set(OutOfMemory, pTo->n, "strndup", "normalized name");
-		goto fk_end;
+	assert(colno != NULL);
+	uint32_t column_len = strlen(column_name);
+	if (tuple_fieldno_by_name(space->def->dict, column_name, column_len,
+				  field_name_hash(column_name, column_len),
+				  colno) != 0) {
+		sqlite3ErrorMsg(parse_context,
+				"table \"%s\" doesn't feature column %s",
+				space->def->name, column_name);
+		return -1;
 	}
-	sqlite3NormalizeName(normilized_name);
-	uint32_t parent_id = box_space_id_by_name(normilized_name,
-						  strlen(normilized_name));
-	if (parent_id == BOX_ID_NIL &&
-	    strcmp(normilized_name, p->def->name) != 0) {
-		sqlite3ErrorMsg(pParse, "foreign key constraint references "\
-				"nonexistent table: %s", normilized_name);
-		goto fk_end;
+	return 0;
+}
+
+void
+sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
+		       struct Token *constraint, struct ExprList *child_cols,
+		       struct Token *parent, struct ExprList *parent_cols,
+		       bool is_deferred, int actions)
+{
+	struct sqlite3 *db = parse_context->db;
+	/*
+	 * When this function is called second time during
+	 * <CREATE TABLE ...> statement (i.e. at VDBE runtime),
+	 * don't even try to do something.
+	 */
+	if (db->init.busy)
+		return;
+	/*
+	 * Beforehand initialization for correct clean-up
+	 * while emergency exiting in case of error.
+	 */
+	const char *parent_name = NULL;
+	const char *constraint_name = NULL;
+	bool is_self_referenced = false;
+	/*
+	 * Table under construction during CREATE TABLE
+	 * processing. NULL for ALTER TABLE statement handling.
+	 */
+	struct Table *new_tab = parse_context->pNewTable;
+	/* Whether we are processing ALTER TABLE or CREATE TABLE. */
+	bool is_alter = new_tab == NULL;
+	uint32_t child_cols_count;
+	if (child_cols == NULL) {
+		if (is_alter) {
+			sqlite3ErrorMsg(parse_context,
+					"referencing columns are not specified");
+			goto exit_create_fk;
+		}
+		child_cols_count = 1;
+	} else {
+		child_cols_count = child_cols->nExpr;
+	}
+	assert(!is_alter || (child != NULL && child->nSrc == 1));
+	struct space *child_space = NULL;
+	uint32_t child_id = 0;
+	if (is_alter) {
+		const char *child_name = child->a[0].zName;
+		child_id = box_space_id_by_name(child_name,
+						strlen(child_name));
+		if (child_id == BOX_ID_NIL) {
+			diag_set(ClientError, ER_NO_SUCH_SPACE, child_name);
+			goto tnt_error;
+		}
+		child_space = space_by_id(child_id);
+		assert(child_space != NULL);
+	} else {
+		struct fkey_parse *fk = region_alloc(&parse_context->region,
+						     sizeof(*fk));
+		if (fk == NULL) {
+			diag_set(OutOfMemory, sizeof(*fk), "region",
+				 "struct fkey_parse");
+			parse_context->rc = SQL_TARANTOOL_ERROR;
+			parse_context->nErr++;
+			goto exit_create_fk;
+		}
+		memset(fk, 0, sizeof(*fk));
+		struct fkey_parse *last_fk = parse_context->new_fkey;
+		parse_context->new_fkey = fk;
+		fk->next = last_fk;
+	}
+	assert(parent != NULL);
+	parent_name = sqlite3NameFromToken(db, parent);
+	if (parent_name == NULL)
+		goto exit_create_fk;
+	uint32_t parent_id = box_space_id_by_name(parent_name,
+						  strlen(parent_name));
+	/*
+	 * Within ALTER TABLE ADD CONSTRAINT FK also can be
+	 * self-referenced, but in this case parent (which is
+	 * also child) table will definitely exist.
+	 */
+	is_self_referenced = is_alter ? false :
+			     !strcmp(parent_name, new_tab->def->name);
+	if (parent_id == BOX_ID_NIL) {
+		if (is_self_referenced) {
+			parse_context->new_fkey->selfref_cols = parent_cols;
+			parse_context->new_fkey->is_self_referenced = true;
+		} else {
+			diag_set(ClientError, ER_NO_SUCH_SPACE, parent_name);;
+			goto tnt_error;
+		}
 	}
 	struct space *parent_space = space_by_id(parent_id);
 	if (parent_space != NULL && parent_space->def->opts.is_view) {
-		sqlite3ErrorMsg(pParse, "can't create foreign key constraint "\
-				"referencing view: %s", normilized_name);
-		goto fk_end;
+		sqlite3ErrorMsg(parse_context,
+				"referenced table can't be view");
+		goto exit_create_fk;
 	}
-	if (p == 0)
-		goto fk_end;
-	if (pFromCol == 0) {
-		int iCol = p->def->field_count - 1;
-		if (NEVER(iCol < 0))
-			goto fk_end;
-		if (pToCol && pToCol->nExpr != 1) {
-			sqlite3ErrorMsg(pParse, "foreign key on %s"
-					" should reference only one column of table %T",
-					p->def->fields[iCol].name, pTo);
-			goto fk_end;
+	if (parent_cols != NULL) {
+		if (parent_cols->nExpr != (int) child_cols_count) {
+			sqlite3ErrorMsg(parse_context,
+					"number of columns in foreign key does "
+					"not match the number of columns in "
+					"the referenced table");
+			goto exit_create_fk;
 		}
-		nCol = 1;
-	} else if (pToCol && pToCol->nExpr != pFromCol->nExpr) {
-		sqlite3ErrorMsg(pParse,
-				"number of columns in foreign key does not match the number of "
-				"columns in the referenced table");
-		goto fk_end;
+	} else if (!is_self_referenced) {
+		/*
+		 * If parent columns are not specified, then PK columns
+		 * of parent table are used as referenced.
+		 */
+		struct index *parent_pk = space_index(parent_space, 0);
+		assert(parent_pk != NULL);
+		if (parent_pk->def->key_def->part_count != child_cols_count) {
+			sqlite3ErrorMsg(parse_context,
+					"number of columns in foreign key does "
+					"not match the number of columns in "
+					"the referenced table");
+			goto exit_create_fk;
+		}
+	}
+	if (constraint == NULL && !is_alter) {
+		if (parse_context->constraintName.n == 0) {
+			uint32_t fk_count = 0;
+			for (struct fkey_parse *fk = parse_context->new_fkey;
+			     fk != NULL; fk = fk->next, fk_count++);
+			constraint_name =
+				sqlite3MPrintf(db, "fk_constraint_%d_%s",
+					       fk_count, new_tab->def->name);
+		} else {
+			struct Token *cnstr_nm = &parse_context->constraintName;
+			constraint_name = sqlite3NameFromToken(db, cnstr_nm);
+		}
 	} else {
-		nCol = pFromCol->nExpr;
+		constraint_name = sqlite3NameFromToken(db, constraint);
 	}
-	nByte = sizeof(*pFKey) + (nCol - 1) * sizeof(pFKey->aCol[0]) +
-		strlen(normilized_name) + 1;
-	if (pToCol) {
-		for (i = 0; i < pToCol->nExpr; i++) {
-			nByte += sqlite3Strlen30(pToCol->a[i].zName) + 1;
+	if (constraint_name == NULL)
+		goto exit_create_fk;
+	size_t fk_size = fkey_def_sizeof(child_cols_count,
+					 strlen(constraint_name));
+	struct fkey_def *fk = region_alloc(&parse_context->region, fk_size);
+	if (fk == NULL) {
+		diag_set(OutOfMemory, fk_size, "region", "struct fkey");
+		goto tnt_error;
+	}
+	fk->field_count = child_cols_count;
+	fk->child_id = child_id;
+	fk->parent_id = parent_id;
+	fk->is_deferred = is_deferred;
+	fk->match = (enum fkey_match) ((actions >> 16) & 0xff);
+	fk->on_update = (enum fkey_action) ((actions >> 8) & 0xff);
+	fk->on_delete = (enum fkey_action) (actions & 0xff);
+	fk->links = (struct field_link *) ((char *) fk->name +
+					   strlen(constraint_name) + 1);
+	/* Fill links map. */
+	for (uint32_t i = 0; i < fk->field_count; ++i) {
+		if (!is_self_referenced && parent_cols == NULL) {
+			struct key_def *pk_def =
+				parent_space->index[0]->def->key_def;
+			fk->links[i].parent_field =
+				pk_def->parts[i].fieldno;
+		} else if (!is_self_referenced &&
+			   columnno_by_name(parse_context, parent_space,
+					    parent_cols->a[i].zName,
+					    &fk->links[i].parent_field) != 0) {
+			goto exit_create_fk;
 		}
-	}
-	pFKey = sqlite3DbMallocZero(db, nByte);
-	if (pFKey == 0) {
-		goto fk_end;
-	}
-	pFKey->pFrom = p;
-	pFKey->pNextFrom = p->pFKey;
-	z = (char *)&pFKey->aCol[nCol];
-	pFKey->zTo = z;
-	memcpy(z, normilized_name, strlen(normilized_name) + 1);
-	z += strlen(normilized_name) + 1;
-	pFKey->nCol = nCol;
-	if (pFromCol == 0) {
-		pFKey->aCol[0].iFrom = p->def->field_count - 1;
-	} else {
-		for (i = 0; i < nCol; i++) {
-			int j;
-			for (j = 0; j < (int)p->def->field_count; j++) {
-				if (strcmp(p->def->fields[j].name,
-					   pFromCol->a[i].zName) == 0) {
-					pFKey->aCol[i].iFrom = j;
-					break;
-				}
+		if (!is_alter) {
+			if (child_cols == NULL) {
+				assert(i == 0);
+				/*
+				 * In this case there must be only one link
+				 * (the last column added), so we can break
+				 * immediately.
+				 */
+				fk->links[0].child_field =
+					new_tab->def->field_count - 1;
+				break;
 			}
-			if (j >= (int)p->def->field_count) {
-				sqlite3ErrorMsg(pParse,
-						"unknown column \"%s\" in foreign key definition",
-						pFromCol->a[i].zName);
-				goto fk_end;
-			}
-		}
+			if (resolve_link(parse_context, new_tab->def,
+					 child_cols->a[i].zName,
+					 &fk->links[i].child_field) != 0)
+				goto exit_create_fk;
+		/* In case of ALTER parent table must exist. */
+		} else if (columnno_by_name(parse_context, child_space,
+					    child_cols->a[i].zName,
+					    &fk->links[i].child_field) != 0)
+				goto exit_create_fk;
 	}
-	if (pToCol) {
-		for (i = 0; i < nCol; i++) {
-			int n = sqlite3Strlen30(pToCol->a[i].zName);
-			pFKey->aCol[i].zCol = z;
-			memcpy(z, pToCol->a[i].zName, n);
-			z[n] = 0;
-			z += n + 1;
-		}
-	}
-	pFKey->isDeferred = 0;
-	pFKey->aAction[0] = (u8) (flags & 0xff);	/* ON DELETE action */
-	pFKey->aAction[1] = (u8) ((flags >> 8) & 0xff);	/* ON UPDATE action */
-
-	pNextTo = (FKey *) sqlite3HashInsert(&p->pSchema->fkeyHash,
-					     pFKey->zTo, (void *)pFKey);
-	if (pNextTo == pFKey) {
-		sqlite3OomFault(db);
-		goto fk_end;
-	}
-	if (pNextTo) {
-		assert(pNextTo->pPrevTo == 0);
-		pFKey->pNextTo = pNextTo;
-		pNextTo->pPrevTo = pFKey;
-	}
-
-	/* Link the foreign key to the table as the last step.
+	memcpy(fk->name, constraint_name, strlen(constraint_name));
+	fk->name[strlen(constraint_name)] = '\0';
+	sqlite3NormalizeName(fk->name);
+	/*
+	 * In case of CREATE TABLE processing, all foreign keys
+	 * constraints must be created after space itself, so
+	 * lets delay it until sqlite3EndTable() call and simply
+	 * maintain list of all FK constraints inside parser.
 	 */
-	p->pFKey = pFKey;
-	pFKey = 0;
+	if (!is_alter)
+		parse_context->new_fkey->fkey = fk;
+	else
+		vdbe_fkey_code_creation(parse_context, fk);
 
- fk_end:
-	sqlite3DbFree(db, pFKey);
-	free(normilized_name);
-#endif				/* !defined(SQLITE_OMIT_FOREIGN_KEY) */
-	sql_expr_list_delete(db, pFromCol);
-	sql_expr_list_delete(db, pToCol);
+exit_create_fk:
+	sql_expr_list_delete(db, child_cols);
+	if (!is_self_referenced)
+		sql_expr_list_delete(db, parent_cols);
+	sqlite3DbFree(db, (void *) parent_name);
+	sqlite3DbFree(db, (void *) constraint_name);
+	return;
+tnt_error:
+	parse_context->rc = SQL_TARANTOOL_ERROR;
+	parse_context->nErr++;
+	goto exit_create_fk;
 }
 
-/*
- * This routine is called when an INITIALLY IMMEDIATE or INITIALLY DEFERRED
- * clause is seen as part of a foreign key definition.  The isDeferred
- * parameter is 1 for INITIALLY DEFERRED and 0 for INITIALLY IMMEDIATE.
- * The behavior of the most recently created foreign key is adjusted
- * accordingly.
- */
 void
-sqlite3DeferForeignKey(Parse * pParse, int isDeferred)
+fkey_change_defer_mode(struct Parse *parse_context, bool is_deferred)
 {
-#ifndef SQLITE_OMIT_FOREIGN_KEY
-	Table *pTab;
-	FKey *pFKey;
-	if ((pTab = pParse->pNewTable) == 0 || (pFKey = pTab->pFKey) == 0)
+	if (parse_context->db->init.busy || parse_context->new_fkey == NULL)
 		return;
-	assert(isDeferred == 0 || isDeferred == 1);	/* EV: R-30323-21917 */
-	pFKey->isDeferred = (u8) isDeferred;
-#endif
+	struct fkey_def *fk = parse_context->new_fkey->fkey;
+	fk->is_deferred = is_deferred;
+}
+
+void
+sql_drop_foreign_key(struct Parse *parse_context, struct SrcList *table,
+		     struct Token *constraint)
+{
+	assert(table != NULL && table->nSrc == 1);
+	struct sqlite3 *db = parse_context->db;
+	const char *constraint_name = sqlite3NameFromToken(db, constraint);
+	if (constraint_name == NULL)
+		return;
+	const char *table_name = table->a[0].zName;
+	uint32_t child_id = box_space_id_by_name(table_name,
+						 strlen(table_name));
+	if (child_id == BOX_ID_NIL) {
+		diag_set(ClientError, ER_NO_SUCH_SPACE, table_name);
+		parse_context->rc = SQL_TARANTOOL_ERROR;
+		parse_context->nErr++;
+		sqlite3DbFree(db, (void *) constraint_name);
+		return;
+	}
+	vdbe_fkey_code_drop(parse_context, constraint_name, child_id);
 }
 
 /*

@@ -55,6 +55,7 @@
 #include "session.h"
 #include "xrow.h"
 #include "iproto_constants.h"
+#include "fkey.h"
 
 static sqlite3 *db = NULL;
 
@@ -1527,6 +1528,21 @@ tarantoolSqlite3MakeTableOpts(Table *pTable, const char *zSql, char *buf)
 			p = enc->encode_str(p, "name", 4);
 			p = enc->encode_str(p, a[i].zName, strlen(a[i].zName));
 		}
+	}
+	return p - buf;
+}
+
+int
+fkey_encode_links(const struct fkey_def *fkey, char *buf)
+{
+	const struct Enc *enc = get_enc(buf);
+	char *p = enc->encode_array(buf, fkey->field_count);
+	for (uint32_t i = 0; i < fkey->field_count; ++i) {
+		p = enc->encode_map(p, 2);
+		p = enc->encode_str(p, "child", strlen("child"));
+		p = enc->encode_uint(p, fkey->links[i].child_field);
+		p = enc->encode_str(p, "parent", strlen("parent"));
+		p = enc->encode_uint(p, fkey->links[i].parent_field);
 	}
 	return p - buf;
 }

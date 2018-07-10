@@ -4835,12 +4835,12 @@ sqlite3ExprIfFalse(Parse * pParse, Expr * pExpr, int dest, int jumpIfNull)
 	 * Assert()s verify that the computation is correct.
 	 */
 
-	op = ((pExpr->op + (TK_ISNULL & 1)) ^ 1) - (TK_ISNULL & 1);
+	if (pExpr->op >= TK_NE && pExpr->op <= TK_GE)
+		op = ((pExpr->op + (TK_NE & 1)) ^ 1) - (TK_NE & 1);
+	if (pExpr->op == TK_ISNULL || pExpr->op == TK_NOTNULL)
+		op = ((pExpr->op + (TK_ISNULL & 1)) ^ 1) - (TK_ISNULL & 1);
 
-	/*
-	 * Verify correct alignment of TK_ and OP_ constants.
-	 * Tokens TK_ISNULL and TK_NE shoud have the same parity.
-	 */
+	/* Verify correct alignment of TK_ and OP_ constants. */
 	assert(pExpr->op != TK_NE || op == OP_Eq);
 	assert(pExpr->op != TK_EQ || op == OP_Ne);
 	assert(pExpr->op != TK_LT || op == OP_Ge);

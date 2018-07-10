@@ -731,7 +731,7 @@ test:do_catchsql_test(
     [[
         DROP TABLE t6;
 	CREATE TABLE t4(a INT PRIMARY KEY);
-        CREATE TABLE t6(a REFERENCES t4(a) MATCH PARTIAL primary key);
+        CREATE TABLE t6(a INTEGER REFERENCES t4(a) MATCH PARTIAL primary key);
     ]], {
         -- <table-10.2>
         0
@@ -742,7 +742,7 @@ test:do_catchsql_test(
     "table-10.3",
     [[
         DROP TABLE t6;
-        CREATE TABLE t6(a REFERENCES t4 MATCH FULL ON DELETE SET NULL NOT NULL primary key);
+        CREATE TABLE t6(a INTEGER REFERENCES t4 MATCH FULL ON DELETE SET NULL NOT NULL primary key);
     ]], {
         -- <table-10.3>
         0
@@ -753,7 +753,7 @@ test:do_catchsql_test(
     "table-10.4",
     [[
         DROP TABLE t6;
-        CREATE TABLE t6(a REFERENCES t4 MATCH FULL ON UPDATE SET DEFAULT DEFAULT 1 primary key);
+        CREATE TABLE t6(a INT REFERENCES t4 MATCH FULL ON UPDATE SET DEFAULT DEFAULT 1 primary key);
     ]], {
         -- <table-10.4>
         0
@@ -791,14 +791,16 @@ test:do_catchsql_test(
         );
     ]], {
         -- <table-10.7>
-        0
+        1, "table \"T4\" doesn't feature column B"
         -- </table-10.7>
     })
 
 test:do_catchsql_test(
     "table-10.8",
     [[
-        DROP TABLE t6;
+        DROP TABLE IF EXISTS t6;
+	DROP TABLE IF EXISTS t4;
+        CREATE TABLE t4(x UNIQUE, y, PRIMARY KEY (x, y));
         CREATE TABLE t6(a primary key,b,c,
           FOREIGN KEY (b,c) REFERENCES t4(x,y) MATCH PARTIAL
             ON UPDATE SET NULL ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
@@ -846,7 +848,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.11>
-        1, "foreign key on C should reference only one column of table t4"
+        1, "number of columns in foreign key does not match the number of columns in the referenced table"
         -- </table-10.11>
     })
 
@@ -861,7 +863,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.12>
-        1, [[unknown column "X" in foreign key definition]]
+        1, [[no such column X]]
         -- </table-10.12>
     })
 
@@ -876,7 +878,7 @@ test:do_test(
         ]]
     end, {
         -- <table-10.13>
-        1, [[unknown column "X" in foreign key definition]]
+        1, [[no such column X]]
         -- </table-10.13>
     })
 

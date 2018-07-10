@@ -155,6 +155,18 @@ int tarantoolSqlite3MakeTableFormat(Table * pTable, void *buf);
  */
 int tarantoolSqlite3MakeTableOpts(Table * pTable, const char *zSql, char *buf);
 
+/**
+ * Encode links of given foreign key constraint into MsgPack.
+ *
+ * @param fkey Encode links of this foreign key contraint.
+ * @param buf Buffer to hold encoded links. Can be NULL.
+ *            In this case function would simply calculate
+ *            memory required for such buffer.
+ * @retval Length of encoded array.
+ */
+int
+fkey_encode_links(const struct fkey_def *fkey, char *buf);
+
 /*
  * Format "parts" array for _index entry.
  * Returns result size.

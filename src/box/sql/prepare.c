@@ -447,6 +447,11 @@ sql_parser_destroy(Parse *parser)
 	sqlite3 *db = parser->db;
 	sqlite3DbFree(db, parser->aLabel);
 	sql_expr_list_delete(db, parser->pConstExpr);
+	struct fkey_parse *fk = parser->new_fkey;
+	while (fk != NULL) {
+		sql_expr_list_delete(db, fk->selfref_cols);
+		fk = fk->next;
+	}
 	if (db != NULL) {
 		assert(db->lookaside.bDisable >=
 		       parser->disableLookaside);

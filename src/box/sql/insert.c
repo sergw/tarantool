@@ -1360,13 +1360,13 @@ sqlite3GenerateConstraintChecks(Parse * pParse,		/* The parser context */
 		bool no_delete_triggers =
 			(0 == (user_session->sql_flags &
 			       SQLITE_RecTriggers) ||
-			 sql_triggers_exist(pTab, TK_DELETE, NULL, NULL) ==
+			 sql_triggers_exist(pTab, TK_DELETE,NULL, NULL) ==
 			 NULL);
+		struct space *space = space_by_id(space_id);
+		assert(space != NULL);
 		bool no_foreign_keys =
-			(0 == (user_session->sql_flags &
-			       SQLITE_ForeignKeys) ||
-			 (0 == pTab->pFKey &&
-			  0 == sqlite3FkReferences(pTab)));
+			(0 == (user_session->sql_flags & SQLITE_ForeignKeys) ||
+			 (space->child_fkey == NULL && space->parent_fkey));
 
 		if (no_secondary_indexes && no_foreign_keys &&
 		    proper_error_action && no_delete_triggers) {
@@ -1606,7 +1606,7 @@ sqlite3OpenTableAndIndices(Parse * pParse,	/* Parsing context */
 
 		if (isUpdate || 			/* Condition 1 */
 		    IsPrimaryKeyIndex(pIdx) ||		/* Condition 2 */
-		    sqlite3FkReferences(pTab) ||	/* Condition 3 */
+		    space->parent_fkey != NULL ||	/* Condition 3 */
 		    /* Condition 4 */
 		    (index_is_unique(pIdx) && pIdx->onError !=
 		     ON_CONFLICT_ACTION_DEFAULT &&
@@ -1883,10 +1883,11 @@ xferOptimization(Parse * pParse,	/* Parser context */
 	 * So the extra complication to make this rule less restrictive is probably
 	 * not worth the effort.  Ticket [6284df89debdfa61db8073e062908af0c9b6118e]
 	 */
-	if ((user_session->sql_flags & SQLITE_ForeignKeys) != 0
-	    && pDest->pFKey != 0) {
+	struct space *dest = space_by_id(pDest->def->id);
+	assert(dest != NULL);
+	if ((user_session->sql_flags & SQLITE_ForeignKeys) != 0 &&
+	    dest->child_fkey != NULL)
 		return 0;
-	}
 #endif
 	if ((user_session->sql_flags & SQLITE_CountRows) != 0) {
 		return 0;	/* xfer opt does not play well with PRAGMA count_changes */

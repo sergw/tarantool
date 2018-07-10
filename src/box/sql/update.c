@@ -229,7 +229,7 @@ sqlite3Update(Parse * pParse,		/* The parser context */
 	 */
 	pTabList->a[0].colUsed = 0;
 
-	hasFK = sqlite3FkRequired(pTab, aXRef);
+	hasFK = fkey_is_required(pTab->def->id, aXRef);
 
 	/* There is one entry in the aRegIdx[] array for each index on the table
 	 * being updated.  Fill in aRegIdx[] with a register number that will hold
@@ -431,7 +431,7 @@ sqlite3Update(Parse * pParse,		/* The parser context */
 	 * information is needed
 	 */
 	if (chngPk != 0 || hasFK != 0 || trigger != NULL) {
-		u32 oldmask = (hasFK ? sqlite3FkOldmask(pParse, pTab) : 0);
+		u32 oldmask = (hasFK ? fkey_old_mask(pTab->def->id) : 0);
 		oldmask |= sql_trigger_colmask(pParse, trigger, pChanges, 0,
 					       TRIGGER_BEFORE | TRIGGER_AFTER,
 					       pTab, on_error);

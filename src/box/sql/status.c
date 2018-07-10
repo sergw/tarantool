@@ -247,10 +247,7 @@ sqlite3_db_status(sqlite3 * db,	/* The database connection whose status is desir
 
 				nByte +=
 				    ROUND8(sizeof(HashElem)) *
-				    (pSchema->tblHash.count +
-				     pSchema->fkeyHash.count);
-				nByte += sqlite3_msize(pSchema->tblHash.ht);
-				nByte += sqlite3_msize(pSchema->fkeyHash.ht);
+				    (pSchema->tblHash.count);
 
 				for (p = sqliteHashFirst(&pSchema->tblHash); p;
 				     p = sqliteHashNext(p)) {
