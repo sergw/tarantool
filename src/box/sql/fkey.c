@@ -1374,7 +1374,7 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct FKey *pFKey,
 			    sqlite3Expr(db, TK_RAISE,
 					"FOREIGN KEY constraint failed");
 			if (pRaise) {
-				pRaise->affinity = ON_CONFLICT_ACTION_ABORT;
+				pRaise->on_conflict_action = ON_CONFLICT_ACTION_ABORT;
 			}
 			pSelect = sqlite3SelectNew(pParse,
 						   sql_expr_list_append(pParse->db,
