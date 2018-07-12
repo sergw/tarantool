@@ -1234,7 +1234,7 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		init, TARANTOOL_SYS_SCHEMA_NAME,
 		BOX_SCHEMA_ID, 0,
 		"CREATE TABLE \""TARANTOOL_SYS_SCHEMA_NAME
-		"\" (\"key\" TEXT PRIMARY KEY, \"value\")"
+		"\" (\"key\" TEXT PRIMARY KEY, \"value\" TEXT)"
 	);
 
 	sql_schema_put(
@@ -1242,7 +1242,7 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		BOX_SPACE_ID, 0,
 		"CREATE TABLE \""TARANTOOL_SYS_SPACE_NAME
 		"\" (\"id\" INT PRIMARY KEY, \"owner\" INT, \"name\" TEXT, "
-		"\"engine\" TEXT, \"field_count\" INT, \"opts\", \"format\")"
+		"\"engine\" TEXT, \"field_count\" INT, \"opts\" BLOB, \"format\" BLOB)"
 	);
 
 	sql_schema_put(
@@ -1250,14 +1250,14 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		BOX_INDEX_ID, 0,
 		"CREATE TABLE \""TARANTOOL_SYS_INDEX_NAME"\" "
 		"(\"id\" INT, \"iid\" INT, \"name\" TEXT, \"type\" TEXT,"
-		"\"opts\", \"parts\", PRIMARY KEY (\"id\", \"iid\"))"
+		"\"opts\" BLOB, \"parts\" BLOB, PRIMARY KEY (\"id\", \"iid\"))"
 	);
 
 	sql_schema_put(
 		init, TARANTOOL_SYS_TRIGGER_NAME,
 		BOX_TRIGGER_ID, 0,
 		"CREATE TABLE \""TARANTOOL_SYS_TRIGGER_NAME"\" ("
-		"\"name\" TEXT PRIMARY KEY, \"space_id\" INT, \"opts\")"
+		"\"name\" TEXT PRIMARY KEY, \"space_id\" INT, \"opts\" BLOB)"
 	);
 
 	sql_schema_put(
@@ -1280,7 +1280,7 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		       "CREATE TABLE \""TARANTOOL_SYS_SQL_STAT1_NAME
 			       "\"(\"tbl\" text,"
 			       "\"idx\" text,"
-			       "\"stat\" not null,"
+			       "\"stat\" blob not null,"
 			       "PRIMARY KEY(\"tbl\", \"idx\"))");
 
 	sql_schema_put(init, TARANTOOL_SYS_SQL_STAT4_NAME, BOX_SQL_STAT4_ID, 0,
@@ -1290,7 +1290,7 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 			       "\"neq\" text,"
 			       "\"nlt\" text,"
 			       "\"ndlt\" text,"
-			       "\"sample\","
+			       "\"sample\" blob,"
 			       "PRIMARY KEY(\"tbl\", \"idx\", \"sample\"))");
 
 	/* Read _space */
