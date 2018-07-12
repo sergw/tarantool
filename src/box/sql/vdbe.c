@@ -3172,7 +3172,8 @@ case OP_OpenWrite:
 	 * during runtime.
 	 */
 	if (box_schema_version() != p->schema_ver &&
-	    (pOp->p5 & OPFLAG_FRESH_PTR) == 0) {
+	    (pOp->p5 & OPFLAG_FRESH_PTR) == 0 &&
+	    (pOp->p5 & OPFLAG_SYSTEMSP) == 0) {
 		p->expired = 1;
 		rc = SQLITE_ERROR;
 		sqlite3VdbeError(p, "schema version has changed: " \

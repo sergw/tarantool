@@ -3014,6 +3014,9 @@ struct Parse {
 					 * is fresh, even in case schema
 					 * changes previously.
 					 */
+#define OPFLAG_SYSTEMSP      0x40	/* OP_Open**: set if space pointer
+					 * points to system space.
+					 */
 
 /*
  * Each trigger present in the database schema is stored as an
@@ -4869,7 +4872,7 @@ table_column_nullable_action(struct Table *tab, uint32_t column);
 
 /**
  * Generate VDBE code to halt execution with correct error if
- * the object with specified name is already present (or doesn't
+ * the object with specified key is already present (or doesn't
  * present - configure with cond_opcodeq) in specified space.
  * The function allocates error and name resources for VDBE
  * itself.
@@ -4877,7 +4880,8 @@ table_column_nullable_action(struct Table *tab, uint32_t column);
  * @param parser Parsing context.
  * @param space_id Space to lookup identifier.
  * @param index_id Index identifier of key.
- * @param name_src Name of object to test on existence.
+ * @param key_reg Register where key to be found is held.
+ * @param key_len Lenght of key (number of resiters).
  * @param tarantool_error_code to set on halt.
  * @param error_src Error message to display on VDBE halt.
  * @param no_error Do not raise error flag.
@@ -4889,7 +4893,7 @@ table_column_nullable_action(struct Table *tab, uint32_t column);
  */
 int
 vdbe_emit_halt_with_presence_test(struct Parse *parser, int space_id,
-				  int index_id, const char *name_src,
+				  int index_id, int key_reg, uint32_t key_len,
 				  int tarantool_error_code,
 				  const char *error_src, bool no_error,
 				  int cond_opcode);

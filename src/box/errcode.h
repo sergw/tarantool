@@ -217,6 +217,8 @@ struct errcode_record {
 	/*162 */_(ER_FOREIGN_KEY_CONSTRAINT,	"Can not commit transaction: deferred foreign keys violations are not resolved") \
 	/*163 */_(ER_CREATE_FK_CONSTRAINT,	"Failed to create foreign key constraint '%s': %s") \
 	/*164 */_(ER_DROP_FK_CONSTRAINT,	"Failed to drop foreign key constraint '%s': %s") \
+	/*165 */_(ER_NO_SUCH_CONSTRAINT,	"Constraint %s does not exist") \
+	/*165 */_(ER_CONSTRAINT_EXISTS,		"Constraint %s already exists") \
 
 /*
  * !IMPORTANT! Please follow instructions at start of the file

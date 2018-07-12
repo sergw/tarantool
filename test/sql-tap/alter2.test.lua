@@ -1,6 +1,6 @@
 #!/usr/bin/env tarantool
 test = require("sqltester")
-test:plan(15)
+test:plan(17)
 
 -- This suite is aimed to test ALTER TABLE ADD CONSTRAINT statement.
 --
@@ -191,6 +191,29 @@ test:do_execsql_test(
         -- <alter2-3.2>
         3, 2, 2, 5, 1, 1
         -- </alter2-3.2>
+    })
+
+test:do_catchsql_test(
+    "alter2-4.1",
+    [[
+        DROP TABLE child;
+        CREATE TABLE child (id PRIMARY KEY, a UNIQUE);
+        ALTER TABLE child ADD CONSTRAINT fk FOREIGN KEY (id) REFERENCES child;
+        ALTER TABLE child ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES child;
+    ]], {
+        -- <alter2-4.1>
+        1, "Constraint FK already exists"
+        -- </alter2-4.1>
+    })
+
+test:do_catchsql_test(
+    "alter2-4.2",
+    [[
+        ALTER TABLE child DROP CONSTRAINT fake;
+    ]], {
+        -- <alter2-4.2>
+        1, "Constraint FAKE does not exist"
+        -- </alter2-4.2>
     })
 
 test:finish_test()

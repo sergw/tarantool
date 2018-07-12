@@ -125,8 +125,14 @@ sql_trigger_begin(struct Parse *parse, struct Token *name, int tr_tm,
 		const char *error_msg =
 			tt_sprintf(tnt_errcode_desc(ER_TRIGGER_EXISTS),
 				   trigger_name);
+		char *name_copy = sqlite3DbStrDup(db, trigger_name);
+		if (name_copy == NULL)
+			goto trigger_cleanup;
+		int name_reg = ++parse->nMem;
+		sqlite3VdbeAddOp4(parse->pVdbe, OP_String8, 0, name_reg, 0,
+				  name_copy, P4_DYNAMIC);
 		if (vdbe_emit_halt_with_presence_test(parse, BOX_TRIGGER_ID, 0,
-						      trigger_name,
+						      name_reg, 1,
 						      ER_TRIGGER_EXISTS,
 						      error_msg, (no_err != 0),
 						      OP_NoConflict) != 0)
@@ -472,26 +478,28 @@ sql_drop_trigger(struct Parse *parser, struct SrcList *name, bool no_err)
 	if (db->mallocFailed)
 		goto drop_trigger_cleanup;
 	assert(db->pSchema != NULL);
-
+	struct Vdbe *v = sqlite3GetVdbe(parser);
 	/* Do not account nested operations: the count of such
 	 * operations depends on Tarantool data dictionary internals,
 	 * such as data layout in system spaces. Activate the counter
 	 * here to account DROP TRIGGER IF EXISTS case if the trigger
 	 * actually does not exist.
 	 */
-	if (!parser->nested) {
-		Vdbe *v = sqlite3GetVdbe(parser);
-		if (v != NULL)
-			sqlite3VdbeCountChanges(v);
-	}
+	if (!parser->nested && v != NULL)
+		sqlite3VdbeCountChanges(v);
 
 	assert(name->nSrc == 1);
 	const char *trigger_name = name->a[0].zName;
 	const char *error_msg =
 		tt_sprintf(tnt_errcode_desc(ER_NO_SUCH_TRIGGER),
 			   trigger_name);
+	char *name_copy = sqlite3DbStrDup(db, trigger_name);
+	if (name_copy == NULL)
+		goto drop_trigger_cleanup;
+	int name_reg = ++parser->nMem;
+	sqlite3VdbeAddOp4(v, OP_String8, 0, name_reg, 0, name_copy, P4_DYNAMIC);
 	if (vdbe_emit_halt_with_presence_test(parser, BOX_TRIGGER_ID, 0,
-					      trigger_name, ER_NO_SUCH_TRIGGER,
+					      name_reg, 1, ER_NO_SUCH_TRIGGER,
 					      error_msg, no_err, OP_Found) != 0)
 		goto drop_trigger_cleanup;
 

@@ -489,6 +489,8 @@ t;
   162: box.error.FOREIGN_KEY_CONSTRAINT
   163: box.error.CREATE_FK_CONSTRAINT
   164: box.error.DROP_FK_CONSTRAINT
+  165: box.error.NO_SUCH_CONSTRAINT
+  166: box.error.CONSTRAINT_EXISTS
 ...
 test_run:cmd("setopt delimiter ''");
 ---
