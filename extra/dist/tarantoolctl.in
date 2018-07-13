@@ -155,6 +155,8 @@ local function load_default_file(default_file)
     d.vinyl_dir = fio.pathjoin(d.vinyl_dir, instance_name)
     d.log       = fio.pathjoin(d.log,       instance_name .. '.log')
 
+    d.language  = d.language or "lua"
+
     default_cfg = d
 
     if not usermode then
@@ -454,6 +456,7 @@ local function wrapper_cfg(cfg)
     elseif cfg.background == nil then
         cfg.background = true
     end
+    cfg.language = nil
 
     mk_default_dirs(cfg)
     local success, data = pcall(orig_cfg, cfg)
@@ -629,6 +632,8 @@ local function logrotate()
 end
 
 local function enter()
+    local options = keyword_arguments
+    local language = options.language or default_cfg.language
     local console_sock_path = uri.parse(console_sock).service
     if fio.stat(console_sock_path) == nil then
         log.error("Can't connect to %s (%s)", console_sock_path, errno.strerror())
@@ -644,7 +649,9 @@ local function enter()
         console_sock, TIMEOUT_INFINITY
     )
 
-    console.on_start(function(self) self:eval(cmd) end)
+    local lang_cmd = string.format("\\set language %s", language)
+
+    console.on_start(function(self) self:eval(cmd) self:eval(lang_cmd) end)
     console.on_client_disconnect(function(self) self.running = false end)
     console.start()
     return 0
@@ -1284,6 +1291,7 @@ do
         { 'chdir',       'string'  },
         { 'only-server', 'string'  },
         { 'server',      'string'  },
+        { 'language',    'string'  },
     })
 
     local cmd_name
