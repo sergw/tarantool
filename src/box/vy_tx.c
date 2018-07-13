@@ -58,6 +58,7 @@
 #include "vy_history.h"
 #include "vy_read_set.h"
 #include "vy_read_view.h"
+#include "vy_point_lookup.h"
 
 int
 write_set_cmp(struct txv *a, struct txv *b)
@@ -483,6 +484,97 @@ vy_tx_write(struct vy_lsm *lsm, struct vy_mem *mem,
 	return vy_lsm_set(lsm, mem, stmt, region_stmt);
 }
 
+/**
+ * Try to generate a deferred DELETE statement on tx commit.
+ *
+ * This function is supposed to be called for a primary index
+ * statement which was executed without deletion of the overwritten
+ * tuple from secondary indexes. It looks up the overwritten tuple
+ * in memory and, if found, produces the deferred DELETEs and
+ * inserts them into the transaction log.
+ *
+ * Affects @tx->log, @v->stmt.
+ *
+ * Returns 0 on success, -1 on memory allocation error.
+ */
+static int
+vy_tx_handle_deferred_delete(struct vy_tx *tx, struct txv *v)
+{
+	struct vy_lsm *pk = v->lsm;
+	struct tuple *stmt = v->stmt;
+	uint8_t flags = vy_stmt_flags(stmt);
+
+	assert(pk->index_id == 0);
+	assert(flags & VY_STMT_DEFERRED_DELETE);
+
+	/* Look up the tuple overwritten by this statement. */
+	struct tuple *tuple;
+	if (vy_point_lookup_mem(pk, &tx->xm->p_global_read_view,
+				stmt, &tuple) != 0)
+		return -1;
+
+	if (tuple == NULL) {
+		/*
+		 * Nothing's found, but there still may be
+		 * matching statements stored on disk so we
+		 * have to defer generation of DELETE until
+		 * compaction.
+		 */
+		return 0;
+	}
+
+	/*
+	 * If a terminal statement is found, we can produce
+	 * DELETE right away so clear the flag now.
+	 */
+	vy_stmt_set_flags(stmt, flags & ~VY_STMT_DEFERRED_DELETE);
+
+	if (vy_stmt_type(tuple) == IPROTO_DELETE) {
+		/* The tuple's already deleted, nothing to do. */
+		tuple_unref(tuple);
+		return 0;
+	}
+
+	struct tuple *delete_stmt;
+	delete_stmt = vy_stmt_new_surrogate_delete(pk->mem_format, tuple);
+	tuple_unref(tuple);
+	if (delete_stmt == NULL)
+		return -1;
+
+	if (vy_stmt_type(stmt) == IPROTO_DELETE) {
+		/*
+		 * Since primary and secondary indexes of the
+		 * same space share in-memory statements, we
+		 * need to use the new DELETE in the primary
+		 * index, because the original DELETE doesn't
+		 * contain secondary key parts.
+		 */
+		vy_stmt_counter_acct_tuple(&pk->stat.txw.count, delete_stmt);
+		vy_stmt_counter_unacct_tuple(&pk->stat.txw.count, stmt);
+		v->stmt = delete_stmt;
+		tuple_ref(delete_stmt);
+		tuple_unref(stmt);
+	}
+
+	/*
+	 * Make DELETE statements for secondary indexes and
+	 * insert them into the transaction log.
+	 */
+	int rc = 0;
+	struct vy_lsm *lsm;
+	rlist_foreach_entry(lsm, &pk->list, list) {
+		struct txv *delete_txv = txv_new(tx, lsm, delete_stmt);
+		if (delete_txv == NULL) {
+			rc = -1;
+			break;
+		}
+		stailq_insert_entry(&tx->log, delete_txv, v, next_in_log);
+		vy_stmt_counter_acct_tuple(&lsm->stat.txw.count, delete_stmt);
+	}
+	tuple_unref(delete_stmt);
+	return rc;
+}
+
 int
 vy_tx_prepare(struct vy_tx *tx)
 {
@@ -590,6 +682,11 @@ vy_tx_prepare(struct vy_tx *tx)
 		if (vy_tx_write_prepare(v) != 0)
 			return -1;
 		assert(v->mem != NULL);
+
+		if (lsm->index_id == 0 &&
+		    vy_stmt_flags(v->stmt) & VY_STMT_DEFERRED_DELETE &&
+		    vy_tx_handle_deferred_delete(tx, v) != 0)
+			return -1;
 
 		/* In secondary indexes only REPLACE/DELETE can be written. */
 		vy_stmt_set_lsn(v->stmt, MAX_LSN + tx->psn);
