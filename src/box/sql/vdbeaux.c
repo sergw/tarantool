@@ -631,11 +631,9 @@ sqlite3VdbeAssertMayAbort(Vdbe * v, int mayAbort)
 			hasAbort = 1;
 			break;
 		}
-#ifndef SQLITE_OMIT_FOREIGN_KEY
 		if (opcode == OP_FkCounter && pOp->p1 == 0 && pOp->p2 == 1) {
 			hasFkCounter = 1;
 		}
-#endif
 	}
 	sqlite3DbFree(v->db, sIter.apSub);
 
@@ -2333,7 +2331,6 @@ sqlite3VdbeCloseStatement(Vdbe * p, int eOp)
  * SQLITE_ERROR, set the result of the VM to SQLITE_CONSTRAINT_FOREIGNKEY
  * and write an error message to it. Then return SQLITE_ERROR.
  */
-#ifndef SQLITE_OMIT_FOREIGN_KEY
 int
 sqlite3VdbeCheckFk(Vdbe * p, int deferred)
 {
@@ -2347,7 +2344,6 @@ sqlite3VdbeCheckFk(Vdbe * p, int deferred)
 	}
 	return SQLITE_OK;
 }
-#endif
 
 int
 sql_txn_begin(Vdbe *p)

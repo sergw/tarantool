@@ -4701,13 +4701,6 @@ void sqlite3WithPush(Parse *, With *, u8);
 #define sqlite3WithDelete(x,y)
 #endif
 
-/* Declarations for functions in fkey.c. All of these are replaced by
- * no-op macros if OMIT_FOREIGN_KEY is defined. In this case no foreign
- * key functionality is available. If OMIT_TRIGGER is defined but
- * OMIT_FOREIGN_KEY is not, only some of the functions are no-oped. In
- * this case foreign keys are parsed, but no other functionality is
- * provided (enforcement of FK constraints requires the triggers sub-system).
- */
 void sqlite3FkCheck(Parse *, Table *, int, int, int *);
 void sqlite3FkActions(Parse *, Table *, ExprList *, int, int *);
 
