@@ -204,6 +204,8 @@ struct vy_lsm {
 	 * by each secondary index.
 	 */
 	struct vy_lsm *pk;
+	/** List of all LSM trees of the same space. */
+	struct rlist list;
 	/** LSM tree statistics. */
 	struct vy_lsm_stat stat;
 	/**

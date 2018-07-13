@@ -194,8 +194,12 @@ vy_lsm_new(struct vy_lsm_env *lsm_env, struct vy_cache_env *cache_env,
 	vy_range_heap_create(&lsm->range_heap);
 	rlist_create(&lsm->runs);
 	lsm->pk = pk;
-	if (pk != NULL)
+	if (pk != NULL) {
 		vy_lsm_ref(pk);
+		rlist_add_tail(&pk->list, &lsm->list);
+	} else {
+		rlist_create(&lsm->list);
+	}
 	lsm->mem_format = format;
 	tuple_format_ref(lsm->mem_format);
 	lsm->in_dump.pos = UINT32_MAX;
@@ -253,6 +257,7 @@ vy_lsm_delete(struct vy_lsm *lsm)
 
 	lsm->env->lsm_count--;
 
+	rlist_del(&lsm->list);
 	if (lsm->pk != NULL)
 		vy_lsm_unref(lsm->pk);
 

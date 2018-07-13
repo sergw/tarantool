@@ -1147,6 +1147,7 @@ vinyl_space_swap_index(struct space *old_space, struct space *new_space,
 	SWAP(old_lsm->opts, new_lsm->opts);
 	key_def_swap(old_lsm->key_def, new_lsm->key_def);
 	key_def_swap(old_lsm->cmp_def, new_lsm->cmp_def);
+	rlist_swap(&old_lsm->list, &new_lsm->list);
 
 	/* Update pointer to the primary key. */
 	vy_lsm_update_pk(old_lsm, vy_lsm(old_space->index_map[0]));
