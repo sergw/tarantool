@@ -1635,7 +1635,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 			sqlite3ErrorMsg(pParse,
 					"PRIMARY KEY missing on table %s",
 					p->def->name);
-			return;
+			goto cleanup;
 		}
 	}
 
@@ -1653,7 +1653,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 				"only PRIMARY KEY constraint can "
 				"have ON CONFLICT REPLACE clause "
 				"- %s", p->def->name);
-		return;
+		goto cleanup;
 	}
 	if (db->init.busy) {
 		/*
@@ -1665,7 +1665,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 		 */
 		struct ExprList *old_checks = p->def->opts.checks;
 		if (sql_table_def_rebuild(db, p) != 0)
-			return;
+			goto cleanup;
 		sql_expr_list_delete(db, old_checks);
 	}
 
@@ -1683,7 +1683,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 
 		v = sqlite3GetVdbe(pParse);
 		if (NEVER(v == 0))
-			return;
+			goto cleanup;
 
 		/*
 		 * Initialize zType for the new view or table.
@@ -1768,7 +1768,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 		if (pOld) {
 			assert(p == pOld);	/* Malloc must have failed inside HashInsert() */
 			sqlite3OomFault(db);
-			return;
+			goto cleanup;
 		}
 		pParse->pNewTable = 0;
 		current_session()->sql_flags |= SQLITE_InternChanges;
@@ -1793,6 +1793,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 	 * don't require make a copy on space_def_dup and to improve
 	 * debuggability.
 	 */
+cleanup:
 	sql_expr_list_delete(db, p->def->opts.checks);
 	p->def->opts.checks = NULL;
 }
