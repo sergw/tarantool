@@ -1117,6 +1117,7 @@ sqlite3_interrupt(sqlite3 * db)
 int
 sqlite3CreateFunc(sqlite3 * db,
 		  const char *zFunctionName,
+		  enum affinity_type type,
 		  int nArg,
 		  int flags,
 		  void *pUserData,
@@ -1179,12 +1180,14 @@ sqlite3CreateFunc(sqlite3 * db,
 	p->xFinalize = xFinal;
 	p->pUserData = pUserData;
 	p->nArg = (u16) nArg;
+	p->affinity = type;
 	return SQLITE_OK;
 }
 
 int
 sqlite3_create_function_v2(sqlite3 * db,
 			   const char *zFunc,
+			   enum affinity_type type,
 			   int nArg,
 			   int flags,
 			   void *p,
@@ -1215,7 +1218,7 @@ sqlite3_create_function_v2(sqlite3 * db,
 		pArg->xDestroy = xDestroy;
 		pArg->pUserData = p;
 	}
-	rc = sqlite3CreateFunc(db, zFunc, nArg, flags, p, xSFunc, xStep, xFinal,
+	rc = sqlite3CreateFunc(db, zFunc, type, nArg, flags, p, xSFunc, xStep, xFinal,
 			       pArg);
 	if (pArg && pArg->nRef == 0) {
 		assert(rc != SQLITE_OK);
