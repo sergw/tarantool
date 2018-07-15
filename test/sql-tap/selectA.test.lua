@@ -31,7 +31,7 @@ testprefix = "selectA"
 test:do_execsql_test(
     "selectA-1.0",
     [[
-        CREATE TABLE t1(id primary key, a,b,c COLLATE "unicode_ci");
+        CREATE TABLE t1(id  INT primary key, a INT ,b INT ,c  TEXT COLLATE "unicode_ci");
         INSERT INTO t1 VALUES(1, 1,'a','a');
         INSERT INTO t1 VALUES(2, 9.9, 'b', 'B');
         INSERT INTO t1 VALUES(3, NULL, 'C', 'c');
@@ -47,7 +47,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "selectA-1.1",
     [[
-        CREATE TABLE t2(id primary key, x,y,z COLLATE "unicode_ci");
+        CREATE TABLE t2(id  INT primary key, x INT ,y INT ,z  TEXT COLLATE "unicode_ci");
         INSERT INTO t2 VALUES(1, NULL,'U','u');
         INSERT INTO t2 VALUES(2, 'mad', 'Z', 'z');
         INSERT INTO t2 VALUES(3, x'68617265', 'm', 'M');
@@ -63,7 +63,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "selectA-1.2",
     [[
-        CREATE TABLE t3(id primary key, a,b,c COLLATE "unicode_ci");
+        CREATE TABLE t3(id  INT primary key, a INT ,b INT ,c  TEXT COLLATE "unicode_ci");
         INSERT INTO t3 SELECT id, a, b, c FROM t1;
         INSERT INTO t3 SELECT id+10, x, y, z FROM t2;
         INSERT INTO t3 SELECT id+20, a, b, c FROM t1;
@@ -2370,8 +2370,8 @@ test:do_execsql_test(
     [[
         DROP TABLE IF EXISTS t4;
         DROP TABLE IF EXISTS t5;
-        CREATE TABLE t4(id int primary key, a int, b);
-        CREATE TABLE t5(id int primary key, c int, d);
+        CREATE TABLE t4(id int primary key, a int, b INT );
+        CREATE TABLE t5(id int primary key, c int, d INT );
 
         INSERT INTO t5 VALUES(0, 1, 'x');
         INSERT INTO t5 VALUES(1, 2, 'x');
@@ -2419,8 +2419,8 @@ test:do_execsql_test(
     [[
         DROP TABLE IF EXISTS t6;
         DROP TABLE IF EXISTS t7;
-        CREATE TABLE t6(id int primary key, a, b);
-        CREATE TABLE t7(id int primary key, c, d);
+        CREATE TABLE t6(id int primary key, a INT , b INT );
+        CREATE TABLE t7(id int primary key, c INT , d INT );
 
         INSERT INTO t7 VALUES(0, 2, 9);
         INSERT INTO t6 VALUES(0, 3, 0);
@@ -2472,8 +2472,8 @@ test:do_execsql_test(
     [[
         DROP TABLE IF EXISTS t8;
         DROP TABLE IF EXISTS t9;
-        CREATE TABLE t8(id int primary key, a, b);
-        CREATE TABLE t9(id int primary key, c, d);
+        CREATE TABLE t8(id int primary key, a INT , b INT );
+        CREATE TABLE t9(id int primary key, c INT , d INT );
     ]], {
         -- <5.0>
         

@@ -87,7 +87,7 @@ sqlite3ExprAffinity(Expr * pExpr)
 #ifndef SQLITE_OMIT_CAST
 	if (op == TK_CAST) {
 		assert(!ExprHasProperty(pExpr, EP_IntValue));
-		return sqlite3AffinityType(pExpr->u.zToken, 0);
+		return pExpr->affinity;
 	}
 #endif
 	if (op == TK_AGG_COLUMN || op == TK_COLUMN) {
@@ -119,7 +119,7 @@ sqlite3ExprAddCollateToken(Parse * pParse,	/* Parsing context */
 {
 	if (pCollName->n > 0) {
 		Expr *pNew =
-		    sqlite3ExprAlloc(pParse->db, TK_COLLATE, pCollName,
+		    sqlite3ExprAlloc(pParse->db, TK_COLLATE, 0, pCollName,
 				     dequote);
 		if (pNew) {
 			pNew->pLeft = pExpr;
@@ -796,6 +796,7 @@ sqlite3ExprSetHeightAndFlags(Parse * pParse, Expr * p)
 Expr *
 sqlite3ExprAlloc(sqlite3 * db,	/* Handle for sqlite3DbMallocRawNN() */
 		 int op,	/* Expression opcode */
+		 enum affinity_type affinity,
 		 const Token * pToken,	/* Token argument.  Might be NULL */
 		 int dequote	/* True to dequote */
     )
@@ -817,6 +818,7 @@ sqlite3ExprAlloc(sqlite3 * db,	/* Handle for sqlite3DbMallocRawNN() */
 		memset(pNew, 0, sizeof(Expr));
 		pNew->op = (u8) op;
 		pNew->iAgg = -1;
+		pNew->affinity = affinity;
 		if (pToken) {
 			if (nExtra == 0) {
 				pNew->flags |= EP_IntValue;
@@ -861,7 +863,7 @@ sqlite3Expr(sqlite3 * db,	/* Handle for sqlite3DbMallocZero() (may be null) */
 	Token x;
 	x.z = zToken;
 	x.n = zToken ? sqlite3Strlen30(zToken) : 0;
-	return sqlite3ExprAlloc(db, op, &x, 0);
+	return sqlite3ExprAlloc(db, op, 0, &x, 0);
 }
 
 /* Allocate a new expression and initialize it as integer.
@@ -1013,10 +1015,10 @@ sqlite3ExprAnd(sqlite3 * db, Expr * pLeft, Expr * pRight)
 	} else if (exprAlwaysFalse(pLeft) || exprAlwaysFalse(pRight)) {
 		sql_expr_delete(db, pLeft, false);
 		sql_expr_delete(db, pRight, false);
-		return sqlite3ExprAlloc(db, TK_INTEGER, &sqlite3IntTokens[0],
+		return sqlite3ExprAlloc(db, TK_INTEGER, 0, &sqlite3IntTokens[0],
 					0);
 	} else {
-		Expr *pNew = sqlite3ExprAlloc(db, TK_AND, 0, 0);
+		Expr *pNew = sqlite3ExprAlloc(db, TK_AND, 0, 0, 0);
 		sqlite3ExprAttachSubtrees(db, pNew, pLeft, pRight);
 		return pNew;
 	}
@@ -1032,7 +1034,7 @@ sqlite3ExprFunction(Parse * pParse, ExprList * pList, Token * pToken)
 	Expr *pNew;
 	sqlite3 *db = pParse->db;
 	assert(pToken);
-	pNew = sqlite3ExprAlloc(db, TK_FUNCTION, pToken, 1);
+	pNew = sqlite3ExprAlloc(db, TK_FUNCTION, 0, pToken, 1);
 	if (pNew == 0) {
 		sql_expr_list_delete(db, pList);	/* Avoid memory leak when malloc fails */
 		return 0;
@@ -2877,7 +2879,7 @@ sqlite3CodeSubselect(Parse * pParse,	/* Parsing context */
 			if (pSel->pLimit == NULL) {
 				pSel->pLimit =
 					sqlite3ExprAlloc(pParse->db, TK_INTEGER,
-							 &sqlite3IntTokens[1],
+							 0, &sqlite3IntTokens[1],
 							 0);
 				if (pSel->pLimit != NULL) {
 					ExprSetProperty(pSel->pLimit,
@@ -3778,9 +3780,7 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 				sqlite3VdbeAddOp2(v, OP_SCopy, inReg, target);
 				inReg = target;
 			}
-			sqlite3VdbeAddOp2(v, OP_Cast, target,
-					  sqlite3AffinityType(pExpr->u.zToken,
-							      0));
+			sqlite3VdbeAddOp2(v, OP_Cast, target, pExpr->affinity);
 			testcase(usedAsColumnCache(pParse, inReg, inReg));
 			sqlite3ExprCacheAffinityChange(pParse, inReg, 1);
 			return inReg;
@@ -4835,11 +4835,10 @@ sqlite3ExprIfFalse(Parse * pParse, Expr * pExpr, int dest, int jumpIfNull)
 	 * Assert()s verify that the computation is correct.
 	 */
 
-	op = ((pExpr->op + (TK_ISNULL & 1)) ^ 1) - (TK_ISNULL & 1);
+	op = ((pExpr->op + (TK_NE & 1)) ^ 1) - (TK_NE & 1);
 
 	/*
 	 * Verify correct alignment of TK_ and OP_ constants.
-	 * Tokens TK_ISNULL and TK_NE shoud have the same parity.
 	 */
 	assert(pExpr->op != TK_NE || op == OP_Eq);
 	assert(pExpr->op != TK_EQ || op == OP_Ne);
@@ -4847,9 +4846,6 @@ sqlite3ExprIfFalse(Parse * pParse, Expr * pExpr, int dest, int jumpIfNull)
 	assert(pExpr->op != TK_LE || op == OP_Gt);
 	assert(pExpr->op != TK_GT || op == OP_Le);
 	assert(pExpr->op != TK_GE || op == OP_Lt);
-
-	assert(pExpr->op != TK_ISNULL || op == OP_NotNull);
-	assert(pExpr->op != TK_NOTNULL || op == OP_IsNull);
 
 	switch (pExpr->op) {
 	case TK_AND:{
@@ -4925,6 +4921,10 @@ sqlite3ExprIfFalse(Parse * pParse, Expr * pExpr, int dest, int jumpIfNull)
 		}
 	case TK_ISNULL:
 	case TK_NOTNULL:{
+			op = ((pExpr->op + (TK_ISNULL & 1)) ^ 1) - (TK_ISNULL & 1);
+			assert(pExpr->op != TK_ISNULL || op == OP_NotNull);
+			assert(pExpr->op != TK_NOTNULL || op == OP_IsNull);
+
 			r1 = sqlite3ExprCodeTemp(pParse, pExpr->pLeft,
 						 &regFree1);
 			sqlite3VdbeAddOp2(v, op, r1, dest);

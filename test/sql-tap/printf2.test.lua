@@ -174,7 +174,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "printf2-2.1",
     [[
-        CREATE TABLE t1(id primary key, a,b,c);
+        CREATE TABLE t1(id INT primary key, a INT,b INT,c INT);
         INSERT INTO t1 VALUES(1, 1,2,3);
         INSERT INTO t1 VALUES(2, -1,-2,-3);
         INSERT INTO t1 VALUES(3, 'abc','def','ghi');

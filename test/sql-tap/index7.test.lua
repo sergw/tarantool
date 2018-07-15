@@ -30,7 +30,7 @@ end
 -- do_test index7-1.1 {
 --   # Able to parse and manage partial indices
 --   execsql {
---     CREATE TABLE t1(a,b,c PRIMARY KEY) WITHOUT rowid;
+--     CREATE TABLE t1(a INT,b INT,c INT PRIMARY KEY) WITHOUT rowid;
 --     CREATE INDEX t1a ON t1(a) WHERE a IS NOT NULL;
 --     CREATE INDEX t1b ON t1(b) WHERE b>10;
 --     CREATE VIRTUAL TABLE nums USING wholenumber;
@@ -146,7 +146,7 @@ end
 -- #
 -- do_test index7-2.1 {
 --   execsql {
---     CREATE TABLE t2(a,b PRIMARY KEY) without rowid;
+--     CREATE TABLE t2(a INT,b INT PRIMARY KEY) without rowid;
 --     INSERT INTO t2(a,b) SELECT value, value FROM nums WHERE value<1000;
 --     UPDATE t2 SET a=NULL WHERE b%5==0;
 --     CREATE INDEX t2a1 ON t2(a) WHERE a IS NOT NULL;
@@ -211,7 +211,7 @@ end
 -- # Partial UNIQUE indices
 -- #
 -- do_execsql_test index7-3.1 {
---   CREATE TABLE t3(a,b PRIMARY KEY) without rowid;
+--   CREATE TABLE t3(a INT,b INT PRIMARY KEY) without rowid;
 --   INSERT INTO t3 SELECT value, value FROM nums WHERE value<200;
 --   UPDATE t3 SET a=999 WHERE b%5!=0;
 --   CREATE UNIQUE INDEX t3a ON t3(a) WHERE a<>999;
@@ -247,8 +247,8 @@ end
 test:do_execsql_test(
     "index7-6.1",
     [[
-        CREATE TABLE t5(id primary key, a, b);
-        CREATE TABLE t4(id primary key, c, d);
+        CREATE TABLE t5(id INT primary key, a INT, b INT);
+        CREATE TABLE t4(id INT primary key, c INT, d INT);
         INSERT INTO t5 VALUES(1, 1, 'xyz');
         INSERT INTO t4 VALUES(1, 'abc', 'not xyz');
         SELECT a,b,c,d FROM (SELECT a,b FROM t5 WHERE a=1 AND b='xyz'), t4 WHERE c='abc';

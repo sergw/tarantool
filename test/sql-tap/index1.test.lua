@@ -24,7 +24,7 @@ test:plan(79)
 test:do_test(
     "index-1.1",
     function()
-        test:execsql "CREATE TABLE test1(id primary key, f1 int, f2 int, f3 int)"
+        test:execsql "CREATE TABLE test1(id  INT primary key, f1 int, f2 int, f3 int)"
         test:execsql "CREATE INDEX index1 ON test1(f1)"
         return test:execsql [[SELECT "name" FROM "_space" WHERE "name"='TEST1']]
     end, {
@@ -93,7 +93,7 @@ test:do_catchsql_test(
 test:do_test(
     "index-2.1b",
     function()
-        test:execsql "CREATE TABLE test1(id primary key, f1 int, f2 int, f3 int)"
+        test:execsql "CREATE TABLE test1(id  INT primary key, f1 int, f2 int, f3 int)"
         return test:catchsql "CREATE INDEX index1 ON test1(f4)"
     end, {
         -- <index-2.1b>
@@ -183,7 +183,7 @@ end
 test:do_test(
     "index-4.1",
     function()
-        test:execsql "CREATE TABLE test1(id primary key, cnt int, power int)"
+        test:execsql "CREATE TABLE test1(id  INT primary key, cnt int, power int)"
         local val = 2
         for i = 1, 19, 1 do
             test:execsql(string.format("INSERT INTO test1 VALUES(%s, %s,%s)", i, i, val))
@@ -339,8 +339,8 @@ test:do_test(
 test:do_test(
     "index-6.1",
     function()
-        test:execsql "CREATE TABLE test1(id primary key, f1 int, f2 int)"
-        test:execsql "CREATE TABLE test2(id primary key, g1 real, g2 real)"
+        test:execsql "CREATE TABLE test1(id  INT primary key, f1 int, f2 int)"
+        test:execsql "CREATE TABLE test2(id  INT primary key, g1 float, g2 float)"
         return test:execsql "CREATE INDEX index1 ON test1(f1)"
     end, {
         -- <index-6.1>
@@ -410,7 +410,7 @@ test:do_test(
 test:do_execsql_test(
     "index-6.4",
     [[
-        CREATE TABLE test1(id primary key, a,b);
+        CREATE TABLE test1(id  INT primary key, a INT ,b INT );
         CREATE INDEX index1 ON test1(a);
         CREATE INDEX index2 ON test1(b);
         CREATE INDEX index3 ON test1(a,b);
@@ -494,7 +494,7 @@ test:execsql("DROP TABLE IF EXISTS test1")
 test:do_test(
     "index-9.1",
     function()
-        test:execsql "CREATE TABLE tab1(id primary key, a int)"
+        test:execsql "CREATE TABLE tab1(id  INT primary key, a int)"
         test:execsql "EXPLAIN CREATE INDEX idx1 ON tab1(a)"
 
 
@@ -522,7 +522,7 @@ test:do_test(
 test:do_execsql_test(
     "index-10.0",
     [[
-        CREATE TABLE t1(id primary key, a int, b int);
+        CREATE TABLE t1(id  INT primary key, a int, b int);
         CREATE INDEX i1 ON t1(a);
         INSERT INTO t1 VALUES(1, 1,2);
         INSERT INTO t1 VALUES(2, 2,4);
@@ -676,7 +676,7 @@ end
 test:do_execsql_test(
     "index-12.1",
     [[
-        CREATE TABLE t4(id primary key, a NUM,b);
+        CREATE TABLE t4(id  INT primary key, a NUM,b INT );
         INSERT INTO t4 VALUES(1, '0.0',1);
         INSERT INTO t4 VALUES(2, '0.00',2);
         INSERT INTO t4 VALUES(3, 'abc',3);
@@ -761,7 +761,7 @@ test:do_execsql_test(
         CREATE TABLE t5(
            a int UNIQUE,
            b float PRIMARY KEY,
-           c varchar(10),
+           c  TEXT,
            UNIQUE(a,c)
         );
         INSERT INTO t5 VALUES(1,2,3);
@@ -797,17 +797,17 @@ test:do_execsql_test(
 test:do_execsql_test(
     "index-14.1",
     [[
-        CREATE TABLE t6(id primary key, a,b,c);
+        CREATE TABLE t6(id  INT primary key, a TEXT,b TEXT ,c INT );
         CREATE INDEX t6i1 ON t6(a,b);
         INSERT INTO t6 VALUES(1, '','',1);
         INSERT INTO t6 VALUES(2, '',NULL,2);
         INSERT INTO t6 VALUES(3, NULL,'',3);
-        INSERT INTO t6 VALUES(4, 'abc',123,4);
-        INSERT INTO t6 VALUES(5, 123,'abc',5);
+        INSERT INTO t6 VALUES(4, 'abc','123',4);
+        INSERT INTO t6 VALUES(5, '123','abc',5);
         SELECT c FROM t6 ORDER BY a,b;
     ]], {
         -- <index-14.1>
-        3, 5, 2, 1, 4
+       3, 2, 1, 5, 4 
         -- </index-14.1>
     })
 
@@ -837,7 +837,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a>'';
     ]], {
         -- <index-14.4>
-        4
+        5, 4
         -- </index-14.4>
     })
 
@@ -847,7 +847,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a>='';
     ]], {
         -- <index-14.5>
-        2, 1, 4
+        2, 1, 5, 4
         -- </index-14.5>
     })
 
@@ -857,7 +857,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a>123;
     ]], {
         -- <index-14.6>
-        2, 1, 4
+        4
         -- </index-14.6>
     })
 
@@ -867,7 +867,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a>=123;
     ]], {
         -- <index-14.7>
-        5, 2, 1, 4
+        5, 4
         -- </index-14.7>
     })
 
@@ -877,7 +877,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a<'abc';
     ]], {
         -- <index-14.8>
-        5, 2, 1
+        2, 1, 5
         -- </index-14.8>
     })
 
@@ -887,7 +887,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a<='abc';
     ]], {
         -- <index-14.9>
-        5, 2, 1, 4
+        2, 1, 5, 4
         -- </index-14.9>
     })
 
@@ -897,7 +897,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a<='';
     ]], {
         -- <index-14.10>
-        5, 2, 1
+        2, 1
         -- </index-14.10>
     })
 
@@ -907,7 +907,7 @@ test:do_execsql_test(
         SELECT c FROM t6 WHERE a<'';
     ]], {
         -- <index-14.11>
-        5
+        
         -- </index-14.11>
     })
 
@@ -945,7 +945,7 @@ test:do_execsql_test(
 -- } {13 14 15 12 8 5 2 1 3 6 10 11 9 4 7}
 -- # do_test index-15.3 {
 --   execsql {
---     SELECT b FROM t1 WHERE typeof(a) IN ('integer','real') ORDER BY b;
+--     SELECT b FROM t1 WHERE typeof(a) IN ('integer','float') ORDER BY b;
 --   }
 -- } {1 2 3 5 6 8 10 11 12 13 14 15}
 -- integrity_check index-15.4
@@ -953,12 +953,12 @@ test:do_execsql_test(
 -- includes qualifications that specify the same constraint twice only a
 -- single index is generated to enforce the constraint.
 --
--- For example: "CREATE TABLE abc( x PRIMARY KEY, UNIQUE(x) );"
+-- For example: "CREATE TABLE abc( x  INT PRIMARY KEY, UNIQUE(x) );"
 --
 test:do_execsql_test(
     "index-16.1",
     [[
-        CREATE TABLE t7(c UNIQUE PRIMARY KEY);
+        CREATE TABLE t7(c  INT PRIMARY KEY);
         SELECT count(*) FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-16.1>
@@ -970,7 +970,7 @@ test:do_execsql_test(
     "index-16.2",
     [[
         DROP TABLE t7;
-        CREATE TABLE t7(c UNIQUE PRIMARY KEY);
+        CREATE TABLE t7(c  INT UNIQUE PRIMARY KEY);
         SELECT count(*) FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-16.2>
@@ -982,7 +982,7 @@ test:do_execsql_test(
     "index-16.3",
     [[
         DROP TABLE t7;
-        CREATE TABLE t7(c PRIMARY KEY, UNIQUE(c) );
+        CREATE TABLE t7(c  INT PRIMARY KEY, UNIQUE(c) );
         SELECT count(*) FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-16.3>
@@ -994,7 +994,7 @@ test:do_execsql_test(
     "index-16.4",
     [[
         DROP TABLE t7;
-        CREATE TABLE t7(c, d , UNIQUE(c, d), PRIMARY KEY(c, d) );
+        CREATE TABLE t7(c INT , d  INT , UNIQUE(c, d), PRIMARY KEY(c, d) );
         SELECT count(*) FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-16.4>
@@ -1006,7 +1006,7 @@ test:do_execsql_test(
     "index-16.5",
     [[
         DROP TABLE t7;
-        CREATE TABLE t7(c, d , UNIQUE(c), PRIMARY KEY(c, d) );
+        CREATE TABLE t7(c INT , d  INT , UNIQUE(c), PRIMARY KEY(c, d) );
         SELECT count(*) FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-16.5>
@@ -1023,7 +1023,7 @@ test:do_execsql_test(
     "index-17.1",
     [[
         DROP TABLE t7;
-        CREATE TABLE t7(c, d UNIQUE, UNIQUE(c), PRIMARY KEY(c, d) );
+        CREATE TABLE t7(c INT , d  INT UNIQUE, UNIQUE(c), PRIMARY KEY(c, d) );
         SELECT "_index"."name" FROM "_index" JOIN "_space" WHERE "_index"."id" = "_space"."id" AND "_space"."name"='T7';
     ]], {
         -- <index-17.1>
@@ -1064,8 +1064,8 @@ test:do_execsql_test(
     test:do_execsql_test(
         "index-19.1",
         [[
-            CREATE TABLE t7(a UNIQUE PRIMARY KEY);
-            CREATE TABLE t8(a UNIQUE PRIMARY KEY ON CONFLICT ROLLBACK);
+            CREATE TABLE t7(a  INT UNIQUE PRIMARY KEY);
+            CREATE TABLE t8(a  INT UNIQUE PRIMARY KEY ON CONFLICT ROLLBACK);
             INSERT INTO t7 VALUES(1);
             INSERT INTO t8 VALUES(1);
         ]], {
@@ -1091,7 +1091,7 @@ test:do_execsql_test(
             BEGIN;
         ]], {
             -- <index-19.3>
-            1, "Operation is not permitted when there is an active transaction "
+            1, "cannot start a transaction within a transaction"
             -- </index-19.3>
         })
 
@@ -1122,7 +1122,7 @@ test:do_execsql_test(
             DROP TABLE t7;
             DROP TABLE t8;
             CREATE TABLE t7(
-               a PRIMARY KEY ON CONFLICT FAIL, 
+               a  INT PRIMARY KEY ON CONFLICT FAIL, 
                UNIQUE(a) ON CONFLICT IGNORE
             );
         ]], {
@@ -1185,7 +1185,7 @@ if (0 > 0)
     test:do_catchsql_test(
         "index-21.2",
         [[
-            CREATE TABLE t6(x primary key);
+            CREATE TABLE t6(x  INT primary key);
             INSERT INTO temp.t6 values(1),(5),(9);
             CREATE INDEX temp.i21 ON t6(x);
             SELECT x FROM t6 ORDER BY x DESC;
@@ -1197,5 +1197,5 @@ if (0 > 0)
 
 end
 
-
+::exe::
 test:finish_test()

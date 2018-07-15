@@ -107,7 +107,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "fkey3-3.1",
     [[
-        CREATE TABLE t3(a PRIMARY KEY, b, c, d,
+        CREATE TABLE t3(a INT PRIMARY KEY, b INT, c INT, d INT,
             UNIQUE(a, b),
             FOREIGN KEY(c, d) REFERENCES t3(a, b));
         INSERT INTO t3 VALUES(1, 2, 1, 2);
@@ -139,7 +139,7 @@ test:do_catchsql_test(
 test:do_execsql_test(
     "fkey3-3.4",
     [[
-        CREATE TABLE t4(a PRIMARY KEY, b REFERENCES t4(a));
+        CREATE TABLE t4(a INT PRIMARY KEY, b INT REFERENCES t4(a));
     ]], {
         -- <fkey3-3.4>
         -- </fkey3-3.4>
@@ -158,7 +158,7 @@ test:do_catchsql_test(
 test:do_execsql_test(
     "fkey3-3.6",
     [[
-        CREATE TABLE t6(a INTEGER PRIMARY KEY, b, c, d,
+        CREATE TABLE t6(a INTEGER PRIMARY KEY, b INT, c INT, d INT,
             FOREIGN KEY(c, d) REFERENCES t6(a, b));
         CREATE UNIQUE INDEX t6i ON t6(b, a);
         INSERT INTO t6 VALUES(1, 'a', 1, 'a');
@@ -206,7 +206,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "fkey3-3.10",
     [[
-        CREATE TABLE t7(a, b, c, d INTEGER PRIMARY KEY,
+        CREATE TABLE t7(a INT, b INT, c INT, d INTEGER PRIMARY KEY,
             FOREIGN KEY(c, d) REFERENCES t7(a, b));
         CREATE UNIQUE INDEX t7i ON t7(a, b);
         INSERT INTO t7 VALUES('x', 1, 'x', 1);
@@ -239,7 +239,7 @@ test:do_catchsql_test(
 test:do_execsql_test(
     "fkey3-6.1",
     [[
-        CREATE TABLE t8(a PRIMARY KEY, b, c, d, e, FOREIGN KEY(c, d) REFERENCES t8(a, b));
+        CREATE TABLE t8(a INT PRIMARY KEY, b INT, c INT, d INT, e INT, FOREIGN KEY(c, d) REFERENCES t8(a, b));
         CREATE UNIQUE INDEX t8i1 ON t8(a, b);
         CREATE UNIQUE INDEX t8i2 ON t8(c);
         INSERT INTO t8 VALUES(1, 1, 1, 1, 1);

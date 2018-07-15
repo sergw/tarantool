@@ -103,7 +103,7 @@ end
 test:do_execsql_test(
     "hexlit-300",
     [[
-        CREATE TABLE t1(id primary key, x INT, y REAL);
+        CREATE TABLE t1(id INT primary key, x INT, y REAL);
         INSERT INTO t1 VALUES(1, '1234','4567'),(2, '0x1234','0x4567');
         SELECT typeof(x), x, typeof(y), y, '#' FROM t1 ORDER BY id;
     ]], {
@@ -138,7 +138,7 @@ test:do_catchsql_test(
     "hexlist-410",
     [[
         DROP TABLE IF EXISTS t1;
-        CREATE TABLE t1(x primary key);
+        CREATE TABLE t1(x INT primary key);
         INSERT INTO t1 VALUES(1+0x10000000000000000);
     ]], {
         -- <hexlist-410>

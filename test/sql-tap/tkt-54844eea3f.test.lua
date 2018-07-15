@@ -61,7 +61,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "1.2",
     [[
-        CREATE TABLE t4(id primary key, a, b, c);
+        CREATE TABLE t4(id INT primary key, a INT, b INT, c INT);
         INSERT INTO t4 VALUES(1, 'a', 1, 'one');
         INSERT INTO t4 VALUES(2, 'a', 2, 'two');
         INSERT INTO t4 VALUES(3, 'b', 1, 'three');

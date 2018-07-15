@@ -74,7 +74,7 @@ box.sql.execute("DROP TABLE t2;")
 immutable_part(box.space._trigger:select())
 
 -- Test target tables restricts.
-box.sql.execute("CREATE TABLE t1(a INT PRIMARY KEY,b);")
+box.sql.execute("CREATE TABLE t1(a INT PRIMARY KEY,b INT);")
 space_id = box.space.T1.id
 
 tuple = {"T1T", space_id, {sql = [[create trigger t1t instead of update on t1 for each row begin delete from t1 WHERE a=old.a+2; end;]]}}

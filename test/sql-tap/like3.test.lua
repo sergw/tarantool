@@ -35,7 +35,7 @@ test:plan(7)
 
 test:execsql([[
     --PRAGMA encoding='UTF8';
-    CREATE TABLE t1(a PRIMARY KEY,b TEXT COLLATE "unicode_ci");
+    CREATE TABLE t1(a INT PRIMARY KEY,b TEXT COLLATE "unicode_ci");
     INSERT INTO t1(a,b)
        VALUES(1,'abc'),
              (2,'ABX'),
@@ -70,7 +70,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "like3-2.0",
     [[
-        CREATE TABLE t2(a PRIMARY KEY, b TEXT);
+        CREATE TABLE t2(a INT PRIMARY KEY, b TEXT);
         INSERT INTO t2 SELECT a, b FROM t1;
         CREATE INDEX t2ba ON t2(b,a);
         SELECT a, b FROM t2 WHERE b GLOB 'ab*' ORDER BY +a;

@@ -728,7 +728,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     6.0,
     [[
-        CREATE TABLE abc(a primary key, b, c);
+        CREATE TABLE abc(a INT primary key, b INT, c INT);
         INSERT INTO abc VALUES(1, 2, 3);
         INSERT INTO abc VALUES(4, 5, 6);
         INSERT INTO abc VALUES(7, 8, 9);
@@ -751,7 +751,7 @@ test:do_execsql_test(
 -- # routine in where.c.
 -- #
 -- do_execsql_test 7.0 {
---   CREATE TABLE t7(a,b);
+--   CREATE TABLE t7(a INT,b INT);
 --   CREATE INDEX t7a ON t7(a);
 --   CREATE INDEX t7ab ON t7(a,b);
 --   EXPLAIN QUERY PLAN
@@ -767,7 +767,7 @@ test:do_execsql_test(
 --     8.0,
 --     [[
 --         PRAGMA cache_size = 5;
---         CREATE TABLE t1(id integer primary key, a, b);
+--         CREATE TABLE t1(id integer primary key, a INT, b INT);
 --         CREATE INDEX i1 ON t1(a);
 --     ]])
 

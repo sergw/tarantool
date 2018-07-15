@@ -35,6 +35,7 @@ set -f   # disable pathname expansion
 
 currentOp=""
 nOp=0
+mxTk=-1
 newline="$(printf '\n')"
 IFS="$newline"
 while read line; do
@@ -106,6 +107,9 @@ while read line; do
                         eval "ARRAY_used_$val=1"
                         eval "ARRAY_sameas_$val=$sym"
                         eval "ARRAY_def_$val=$name"
+			if [ $val -gt $mxTk ] ; then
+                            mxTk=$val
+			fi
                     fi
                 ;;
                 jump) eval "ARRAY_jump_$name=1" ;;
@@ -220,8 +224,12 @@ while [ "$i" -lt "$nOp" ]; do
     i=$((i + 1))
 done
 max="$cnt"
+echo "//*************** $max $nOp $mxTk"
+if [ $mxTk -lt $nOp ] ; then
+    mxTk=$nOp
+fi
 i=0
-while [ "$i" -lt "$nOp" ]; do
+while [ "$i" -le "$mxTk" ]; do
     eval "used=\${ARRAY_used_$i:-}"
     if [ -z "$used" ]; then
         eval "ARRAY_def_$i=OP_NotUsed_$i"
@@ -251,9 +259,19 @@ done
 # Generate the bitvectors:
 ARRAY_bv_0=0
 i=0
-while [ "$i" -le "$max" ]; do
+while [ "$i" -le "$mxTk" ]; do
+    if [[ ! -v ARRAY_def_$i ]] ; then
+    echo "//SKIP $i"
+        i=$((i + 1))
+	continue
+    fi
     eval "name=\$ARRAY_def_$i"
     x=0
+    if [[ ! -v ARRAY_jump_$name ]] ; then
+    echo "//SKIP2 $i"
+        i=$((i + 1))
+	continue
+    fi
     eval "jump=\$ARRAY_jump_$name"
     eval "in1=\$ARRAY_in1_$name"
     eval "in2=\$ARRAY_in2_$name"
@@ -283,11 +301,15 @@ printf '%s\n' "#define OPFLG_OUT2        0x10  /* out2:  P2 is an output */"
 printf '%s\n' "#define OPFLG_OUT3        0x20  /* out3:  P3 is an output */"
 printf '%s\n' "#define OPFLG_INITIALIZER {\\"
 i=0
-while [ "$i" -le "$max" ]; do
+while [ "$i" -le "$mxTk" ]; do
     if [ "$((i % 8))" -eq 0 ]; then
         printf '/* %3d */' "$i"
     fi
-    eval "bv=\$ARRAY_bv_$i"
+    if [[ ! -v ARRAY_bv_$i ]] ; then
+        bv=0
+    else
+        eval "bv=\$ARRAY_bv_$i"
+    fi
     printf ' 0x%02x,' "$bv"
     if [ "$((i % 8))" -eq 7 ]; then
         printf '%s\n' "\\"

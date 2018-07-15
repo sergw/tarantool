@@ -1499,6 +1499,7 @@ typedef struct Token Token;
 typedef struct TreeView TreeView;
 typedef struct TriggerPrg TriggerPrg;
 typedef struct TriggerStep TriggerStep;
+typedef struct TypeDef TypeDef;
 typedef struct UnpackedRecord UnpackedRecord;
 typedef struct Walker Walker;
 typedef struct WhereInfo WhereInfo;
@@ -1723,6 +1724,28 @@ struct sqlite3 {
 #define SQLITE_MAGIC_BUSY     0xf03b7906	/* Database currently in use */
 #define SQLITE_MAGIC_ERROR    0xb5357930	/* An SQLITE_MISUSE error occurred */
 #define SQLITE_MAGIC_ZOMBIE   0x64cffc7f	/* Close with last statement close */
+
+
+#define MAX_PRECISION 8
+#define MAX_SIZE 16
+
+struct NumericTypeDef {
+	long size;
+	long precision;
+	bool positive;
+};
+
+struct StringTypeDef {
+	long length;
+};
+
+struct TypeDef {
+	enum affinity_type type;
+	union {
+		struct NumericTypeDef n;
+		struct StringTypeDef s;
+	};
+};
 
 /*
  * Each SQL function is defined by an instance of the following
@@ -3482,7 +3505,7 @@ void sqlite3ClearTempRegCache(Parse *);
 #ifdef SQLITE_DEBUG
 int sqlite3NoTempsInRange(Parse *, int, int);
 #endif
-Expr *sqlite3ExprAlloc(sqlite3 *, int, const Token *, int);
+Expr *sqlite3ExprAlloc(sqlite3 *, int, enum affinity_type, const Token *, int);
 Expr *sqlite3Expr(sqlite3 *, int, const char *);
 Expr *sqlite3ExprInteger(sqlite3 *, int);
 void sqlite3ExprAttachSubtrees(sqlite3 *, Expr *, Expr *, Expr *);
@@ -3531,7 +3554,7 @@ void sqlite3SelectAddColumnTypeAndCollation(Parse *, Table *, Select *);
 Table *sqlite3ResultSetOfSelect(Parse *, Select *);
 Index *sqlite3PrimaryKeyIndex(Table *);
 void sqlite3StartTable(Parse *, Token *, int);
-void sqlite3AddColumn(Parse *, Token *, Token *);
+void sqlite3AddColumn(Parse *, Token *, TypeDef *);
 void sqlite3AddNotNull(Parse *, int);
 void sqlite3AddPrimaryKey(Parse *, ExprList *, int, int, enum sort_order);
 
@@ -4304,6 +4327,8 @@ u64 sqlite3LogEstToInt(LogEst);
 VList *sqlite3VListAdd(sqlite3 *, VList *, const char *, int, int);
 const char *sqlite3VListNumToName(VList *, int);
 int sqlite3VListNameToNum(VList *, const char *, int);
+
+int sqlite3TokenToLong(Token *, long *);
 
 /*
  * Routines to read and write variable-length integers.  These used to

@@ -222,12 +222,12 @@ string.format([[
         INSERT INTO test1 VALUES(11,22);
         INSERT INTO test1 VALUES(33,44);
         DROP TABLE IF EXISTS t3;
-        CREATE TABLE t3(id INT, a, b, PRIMARY KEY(id));
+        CREATE TABLE t3(id INT, a INT , b INT , PRIMARY KEY(id));
         INSERT INTO t3 VALUES(1, 'abc',NULL);
         INSERT INTO t3 VALUES(2, NULL,'xyz');
         INSERT INTO t3 SELECT f1, * FROM test1;
         DROP TABLE IF EXISTS t4;
-        CREATE TABLE t4(id INT, a, b, PRIMARY KEY(id));
+        CREATE TABLE t4(id INT, a INT , b INT , PRIMARY KEY(id));
         INSERT INTO t4 VALUES(1, NULL,'%s');
         SELECT * FROM t3;
     ]], long), {
@@ -570,7 +570,7 @@ test:do_catchsql_test(
 -- MUST_WORK_TEST
 -- do_test select1-2.23 {
 --   execsql {
---     CREATE TABLE tkt2526(a,b,c PRIMARY KEY);
+--     CREATE TABLE tkt2526(a INT ,b INT ,c  INT PRIMARY KEY);
 --     INSERT INTO tkt2526 VALUES('x','y',NULL);
 --     INSERT INTO tkt2526 VALUES('x','z',NULL);
 --   }
@@ -803,7 +803,7 @@ test:do_execsql_test(
     "select1-4.8",
     [[
         DROP TABLE IF EXISTS t5;
-        CREATE TABLE t5(a primary key,b);
+        CREATE TABLE t5(a  INT primary key,b INT );
         INSERT INTO t5 VALUES(1,10);
         INSERT INTO t5 VALUES(2,9);
         SELECT * FROM t5 ORDER BY 1;
@@ -1505,7 +1505,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "select1-8.2",
     [[
-        SELECT f1 FROM test1 WHERE ('x' || f1) BETWEEN 'x10' AND 'x20'
+        SELECT f1 FROM test1 WHERE ('x' || cast(f1 as TEXT)) BETWEEN 'x10' AND 'x20'
         ORDER BY f1
     ]], {
         -- <select1-8.2>
@@ -1984,7 +1984,7 @@ test:do_test(
     function()
         test:execsql [[
             drop table if exists abc;
-            create TABLE abc(a, b, c, PRIMARY KEY(a, b));
+            create TABLE abc(a INT, b INT, c INT, PRIMARY KEY(a, b));
             BEGIN;
             INSERT INTO abc VALUES(1, 1, 1);
         ]]
@@ -2040,7 +2040,7 @@ test:do_test(
         "select1-15.1",
         [[
             DROP TABLE IF EXISTS t1;
-            CREATE TABLE t1(id int primary key,a);
+            CREATE TABLE t1(id int primary key,a INT );
             CREATE INDEX i1 ON t1(a);
             INSERT INTO t1 VALUES(1, 1);
             INSERT INTO t1 VALUES(2, 2);

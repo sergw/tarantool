@@ -23,7 +23,7 @@ test:do_test(
     "whereA-1.1",
     function()
         return test:execsql [[
-            CREATE TABLE t1(a INTEGER PRIMARY KEY, b UNIQUE, c);
+            CREATE TABLE t1(a INTEGER PRIMARY KEY, b INT UNIQUE, c INT);
             INSERT INTO t1 VALUES(1,2,3);
             INSERT INTO t1 values(2,'hello','world');
             INSERT INTO t1 VALUES(3,4.53,NULL);
@@ -179,7 +179,7 @@ test:do_test(
     "whereA-4.1",
     function()
         return test:execsql [[
-            CREATE TABLE t2(id int primary key, x);
+            CREATE TABLE t2(id int primary key, x INT);
             INSERT INTO t2 VALUES(1, 1);
             INSERT INTO t2 VALUES(2, 2);
             SELECT x FROM t2;

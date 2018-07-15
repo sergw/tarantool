@@ -28,9 +28,9 @@ testprefix = "triggerE"
 test:do_execsql_test(
     1.0,
     [[
-        CREATE TABLE t1(a PRIMARY KEY, b);
-        CREATE TABLE t2(c  PRIMARY KEY, d);
-        CREATE TABLE t3(e  PRIMARY KEY, f);
+        CREATE TABLE t1(a INT PRIMARY KEY, b INT);
+        CREATE TABLE t2(c  INT PRIMARY KEY, d INT);
+        CREATE TABLE t3(e  INT PRIMARY KEY, f INT);
     ]])
 
 -- forcedelete test.db2

@@ -1,6 +1,6 @@
 #!/usr/bin/env tarantool
 test = require("sqltester")
-test:plan(12431)
+test:plan(12426)
 
 --!./tcltestrunner.lua
 -- 2010 July 16
@@ -829,7 +829,7 @@ test:do_execsql_test(
 -- # clause in a table column definition.
 -- #
 -- do_execsql_test e_expr-9.24 {
---   CREATE TABLE t24(a COLLATE NOCASE, b);
+--   CREATE TABLE t24(a TEXT COLLATE NOCASE, b INT);
 --   INSERT INTO t24 VALUES('aaa', 1);
 --   INSERT INTO t24 VALUES('bbb', 2);
 --   INSERT INTO t24 VALUES('ccc', 3);
@@ -1251,7 +1251,7 @@ test:do_execsql_test(
     })
 
 test:execsql [[
-    CREATE TABLE tblname(cname PRIMARY KEY);
+    CREATE TABLE tblname(cname INT PRIMARY KEY);
 ]]
 local function glob(args)
     return 1
@@ -1312,7 +1312,6 @@ local test_cases12 ={
     {42, "( EXPR )"},
 
     {43, "CAST ( EXPR AS integer )"},
-    {44, "CAST ( EXPR AS 'abcd' )"},
 
     {45, "EXPR COLLATE \"unicode_ci\""},
     {46, "EXPR COLLATE binary"},
@@ -3055,7 +3054,7 @@ evalcount = 0
 test:do_execsql_test(
     "e_expr-26.1.1",
     [[
-        CREATE TABLE t2(x PRIMARY KEY, w1, r1, w2, r2, r3);
+        CREATE TABLE t2(x INT PRIMARY KEY, w1 INT, r1 TEXT, w2 INT, r2 TEXT, r3 TEXT);
         INSERT INTO t2 VALUES(1, 1, 'R1', 2, 'R2', 'R3');
         INSERT INTO t2 VALUES(2, 1, 'R1', 2, 'R2', 'R3');
         INSERT INTO t2 VALUES(3, 1, 'R1', 2, 'R2', 'R3');
@@ -3164,13 +3163,7 @@ test:do_execsql_test(
 do_expr_test("e_expr-27.2.1", " CAST(NULL AS integer) ", "null", "")
 do_expr_test("e_expr-27.2.2", " CAST(NULL AS text) ", "null", "")
 do_expr_test("e_expr-27.2.3", " CAST(NULL AS blob) ", "null", "")
-do_expr_test("e_expr-27.2.4", " CAST(NULL AS number) ", "null", "")
--- EVIDENCE-OF: R-43522-35548 Casting a value to a type-name with no
--- affinity causes the value to be converted into a BLOB.
---
-do_expr_test("e_expr-27.3.1", " CAST('abc' AS blob)       ", "blob", "abc")
-do_expr_test("e_expr-27.3.2", " CAST('def' AS shobblob_x) ", "blob", "def")
-do_expr_test("e_expr-27.3.3", " CAST('ghi' AS abbLOb10)   ", "blob", "ghi")
+do_expr_test("e_expr-27.2.4", " CAST(NULL AS numeric) ", "null", "")
 -- EVIDENCE-OF: R-22956-37754 Casting to a BLOB consists of first casting
 -- the value to TEXT in the encoding of the database connection, then
 -- interpreting the resulting byte sequence as a BLOB instead of as TEXT.
@@ -3287,10 +3280,10 @@ do_expr_test("e_expr-31.2.4", [[
 -- result into INTEGER if and only if the conversion from REAL to INTEGER
 -- is lossless and reversible.
 --
-do_expr_test("e_expr-32.1.1", " CAST('45'   AS NUMERIC)  ", "integer", 45)
-do_expr_test("e_expr-32.1.2", " CAST('45.0' AS NUMERIC)  ", "integer", 45)
+do_expr_test("e_expr-32.1.1", " CAST('45'   AS NUMERIC)  ", "real", 45)
+do_expr_test("e_expr-32.1.2", " CAST('45.0' AS NUMERIC)  ", "real", 45)
 do_expr_test("e_expr-32.1.3", " CAST('45.2' AS NUMERIC)  ", "real", 45.2)
-do_expr_test("e_expr-32.1.4", " CAST('11abc' AS NUMERIC) ", "integer", 11)
+do_expr_test("e_expr-32.1.4", " CAST('11abc' AS NUMERIC) ", "real", 11)
 do_expr_test("e_expr-32.1.5", " CAST('11.1abc' AS NUMERIC) ", "real", 11.1)
 -- EVIDENCE-OF: R-30347-18702 Casting a REAL or INTEGER value to NUMERIC
 -- is a no-op, even if a real value could be losslessly converted to an
@@ -3300,10 +3293,10 @@ do_expr_test("e_expr-32.2.1", " CAST(13.0 AS NUMERIC) ", "real", 13.0)
 do_expr_test("e_expr-32.2.2", " CAST(13.5 AS NUMERIC) ", "real", 13.5)
 do_expr_test("e_expr-32.2.3", [[
   CAST(-9223372036854775808 AS NUMERIC)
-]], "integer", -9223372036854775808LL)
+]], "real", -9223372036854775808)
 do_expr_test("e_expr-32.2.4", [[
   CAST(9223372036854775807 AS NUMERIC)
-]], "integer", 9223372036854775807LL)
+]], "real", 9223372036854775807)
 -- EVIDENCE-OF: R-64550-29191 Note that the result from casting any
 -- non-BLOB value into a BLOB and the result from casting any BLOB value
 -- into a non-BLOB value may be different depending on whether the
@@ -3317,7 +3310,7 @@ do_expr_test("e_expr-32.2.4", [[
 test:do_execsql_test(
     "e_expr-34.1",
     [[
-        CREATE TABLE t1(id PRIMARY KEY, a, b);
+        CREATE TABLE t1(id INT PRIMARY KEY, a INT, b INT);
         INSERT INTO t1 VALUES(1, 1, 2);
         INSERT INTO t1 VALUES(2, NULL, 2);
         INSERT INTO t1 VALUES(3, 1, NULL);
@@ -3412,10 +3405,9 @@ test:catchsql "DROP TABLE t22;"
 test:do_execsql_test(
     "e_expr-35.0",
     [[
-        CREATE TABLE t22(a PRIMARY KEY, b);
+        CREATE TABLE t22(a TEXT PRIMARY KEY, b TEXT);
         INSERT INTO t22 VALUES('one', 'two');
         INSERT INTO t22 VALUES('three', NULL);
-        INSERT INTO t22 VALUES(4, 5.0);
     ]], {
         -- <e_expr-35.0>
         
@@ -3431,14 +3423,14 @@ test:do_execsql_test(
 --
 do_expr_test("e_expr-35.1.1", " (SELECT 35)   ", "integer", 35)
 do_expr_test("e_expr-35.1.2", " (SELECT NULL) ", "null", "")
-do_expr_test("e_expr-35.1.3", " (SELECT count(*) FROM t22) ", "integer", 3)
+do_expr_test("e_expr-35.1.3", " (SELECT count(*) FROM t22) ", "integer", 2)
 do_expr_test("e_expr-35.1.4", " (SELECT 4 FROM t22 LIMIT 1) ", "integer", 4)
 do_expr_test("e_expr-35.1.5", [[ 
   (SELECT b FROM t22 UNION SELECT a+1 FROM t22 LIMIT 1)
 ]], "null", "")
 do_expr_test("e_expr-35.1.6", [[ 
   (SELECT a FROM t22 UNION SELECT COALESCE(b, 55) FROM t22 ORDER BY 1 LIMIT 1)
-]], "integer", 4)
+]], "integer", 55)
 -- EVIDENCE-OF: R-46899-53765 A SELECT used as a scalar quantity must
 -- return a result set with a single column.
 --
@@ -3471,7 +3463,7 @@ end
 test:do_execsql_test(
     "e_expr-36.3.1",
     [[
-        CREATE TABLE t4(x PRIMARY KEY, y);
+        CREATE TABLE t4(x INT PRIMARY KEY, y TEXT);
         INSERT INTO t4 VALUES(1, 'one');
         INSERT INTO t4 VALUES(2, 'two');
         INSERT INTO t4 VALUES(3, 'three');

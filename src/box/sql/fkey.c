@@ -1282,14 +1282,14 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct FKey *pFKey,
 					   sqlite3PExpr(pParse, TK_DOT,
 							sqlite3ExprAlloc(db,
 									 TK_ID,
-									 &tOld,
+									 0, &tOld,
 									 0),
 							sqlite3ExprAlloc(db,
 									 TK_ID,
-									 &tToCol,
+									 0, &tToCol,
 									 0)),
 					   sqlite3ExprAlloc(db, TK_ID,
-							    &tFromCol, 0)
+							    0, &tFromCol, 0)
 			    );
 			pWhere = sqlite3ExprAnd(db, pWhere, pEq);
 
@@ -1302,17 +1302,17 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct FKey *pFKey,
 				pEq = sqlite3PExpr(pParse, TK_EQ,
 						   sqlite3PExpr(pParse, TK_DOT,
 								sqlite3ExprAlloc
-								(db, TK_ID,
+								(db, TK_ID, 0,
 								 &tOld, 0),
 								sqlite3ExprAlloc
-								(db, TK_ID,
+								(db, TK_ID, 0,
 								 &tToCol, 0)),
 						   sqlite3PExpr(pParse, TK_DOT,
 								sqlite3ExprAlloc
-								(db, TK_ID,
+								(db, TK_ID, 0,
 								 &tNew, 0),
 								sqlite3ExprAlloc
-								(db, TK_ID,
+								(db, TK_ID, 0,
 								 &tToCol, 0))
 				    );
 				pWhen = sqlite3ExprAnd(db, pWhen, pEq);
@@ -1325,10 +1325,12 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct FKey *pFKey,
 					pNew = sqlite3PExpr(pParse, TK_DOT,
 							    sqlite3ExprAlloc(db,
 									     TK_ID,
+									     0,
 									     &tNew,
 									     0),
 							    sqlite3ExprAlloc(db,
 									     TK_ID,
+									     0,
 									     &tToCol,
 									     0));
 				} else if (action == OE_SetDflt) {
@@ -1346,11 +1348,11 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct FKey *pFKey,
 						pNew =
 						    sqlite3ExprAlloc(db,
 								     TK_NULL, 0,
-								     0);
+								     0, 0);
 					}
 				} else {
 					pNew =
-					    sqlite3ExprAlloc(db, TK_NULL, 0, 0);
+					    sqlite3ExprAlloc(db, TK_NULL, 0, 0, 0);
 				}
 				pList =
 				    sql_expr_list_append(pParse->db, pList,

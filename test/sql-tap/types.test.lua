@@ -48,7 +48,7 @@ test:plan(51)
 test:do_execsql_test(
     "types-1.1.0",
     [[
-        CREATE TABLE t1(id primary key, i integer, n numeric, t text, o blob);
+        CREATE TABLE t1(id  INT primary key, i integer, n numeric, t text, o blob);
     ]], {
         -- <types-1.1.0>
         
@@ -158,7 +158,7 @@ test:execsql [[
 test:do_execsql_test(
     "types-2.1.1",
     [[
-        CREATE TABLE t1(id primary key, a integer);
+        CREATE TABLE t1(id  INT primary key, a integer);
         INSERT INTO t1 VALUES(1, 0);
         INSERT INTO t1 VALUES(2, 120);
         INSERT INTO t1 VALUES(3, -120);
@@ -259,7 +259,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "types-2.2.1",
     [[
-        CREATE TABLE t2(id primary key, a float);
+        CREATE TABLE t2(id  INT primary key, a float);
         INSERT INTO t2 VALUES(1, 0.0);
         INSERT INTO t2 VALUES(2, 12345.678);
         INSERT INTO t2 VALUES(3, -12345.678);
@@ -295,7 +295,7 @@ test:do_execsql_test(
 test:do_execsql_test(
     "types-2.3.1",
     [[
-        CREATE TABLE t3(id primary key, a nullvalue);
+        CREATE TABLE t3(id  INT primary key, a INT null);
         INSERT INTO t3 VALUES(1, NULL);
     ]], {
         -- <types-2.3.1>
@@ -333,7 +333,7 @@ test:do_test(
     "types-2.4.1",
     function()
         return test:execsql(string.format([[
-            CREATE TABLE t4(id primary key, a string);
+            CREATE TABLE t4(id  INT primary key, a TEXT);
             INSERT INTO t4 VALUES(1, '%s');
             INSERT INTO t4 VALUES(2, '%s');
             INSERT INTO t4 VALUES(3, '%s');
@@ -361,7 +361,7 @@ test:do_execsql_test(
         DROP TABLE t2;
         DROP TABLE t3;
         DROP TABLE t4;
-        CREATE TABLE t1(id primary key, a, b, c);
+        CREATE TABLE t1(id  INT primary key, a INT , b INT , c INT );
     ]], {
         -- <types-2.5.1>
 

@@ -197,7 +197,7 @@ immutable_part(box.space._trigger:select())
 - []
 ...
 -- Test target tables restricts.
-box.sql.execute("CREATE TABLE t1(a INT PRIMARY KEY,b);")
+box.sql.execute("CREATE TABLE t1(a INT PRIMARY KEY,b INT);")
 ---
 ...
 space_id = box.space.T1.id
