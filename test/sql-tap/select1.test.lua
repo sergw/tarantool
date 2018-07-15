@@ -222,17 +222,17 @@ string.format([[
         INSERT INTO test1 VALUES(11,22);
         INSERT INTO test1 VALUES(33,44);
         DROP TABLE IF EXISTS t3;
-        CREATE TABLE t3(id INT, a INT , b INT , PRIMARY KEY(id));
+        CREATE TABLE t3(id INT, a TEXT, b TEXT, PRIMARY KEY(id));
         INSERT INTO t3 VALUES(1, 'abc',NULL);
         INSERT INTO t3 VALUES(2, NULL,'xyz');
         INSERT INTO t3 SELECT f1, * FROM test1;
         DROP TABLE IF EXISTS t4;
-        CREATE TABLE t4(id INT, a INT , b INT , PRIMARY KEY(id));
+        CREATE TABLE t4(id INT, a INT , b TEXT , PRIMARY KEY(id));
         INSERT INTO t4 VALUES(1, NULL,'%s');
         SELECT * FROM t3;
     ]], long), {
         -- <select1-2.0>
-        1, "abc", "", 2, "", "xyz", 11, 11, 22, 33, 33, 44
+        1, "abc", "", 2, "", "xyz", 11, "11", "22", 33, "33", "44"
         -- </select1-2.0>
     })
 
