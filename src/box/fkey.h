@@ -121,20 +121,6 @@ fkey_def_sizeof(uint32_t links_count, uint32_t name_len)
 	       name_len + 1;
 }
 
-static inline enum fkey_action
-fkey_action_by_name(const char *action_str, size_t len)
-{
-	return (enum fkey_action) strnindex(fkey_action_strs, action_str, len,
-					    fkey_action_MAX);
-}
-
-static inline enum fkey_match
-fkey_match_by_name(const char *match_str, size_t len)
-{
-	return (enum fkey_match) strnindex(fkey_match_strs, match_str, len,
-					   fkey_match_MAX);
-}
-
 static inline bool
 fkey_is_self_referenced(const struct fkey_def *fkey)
 {

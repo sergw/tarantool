@@ -218,8 +218,6 @@ struct errcode_record {
 	/*163 */_(ER_CREATE_FK_CONSTRAINT,	"Failed to create foreign key constraint '%s': %s") \
 	/*164 */_(ER_DROP_FK_CONSTRAINT,	"Failed to drop foreign key constraint '%s': %s") \
 
-
-
 /*
  * !IMPORTANT! Please follow instructions at start of the file
  * when adding new errors.

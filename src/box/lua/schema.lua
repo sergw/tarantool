@@ -520,7 +520,7 @@ box.schema.space.drop = function(space_id, space_name, opts)
         local v = keys[i]
         _index:delete{v[1], v[2]}
     end
-    for _, t in _fk_constraint.index.primary:pairs() do
+    for _, t in _fk_constraint:pairs() do
         if t.child_id == space_id then
             _fk_constraint:delete{t.name, t.child_id}
         end

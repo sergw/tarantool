@@ -3520,8 +3520,9 @@ static struct fkey_def *
 fkey_def_new_from_tuple(const struct tuple *tuple, uint32_t errcode)
 {
 	uint32_t name_len;
-	const char *name = tuple_field_str_xc(tuple, BOX_FK_CONSTRAINT_FIELD_NAME,
-					      &name_len);
+	const char *name =
+		tuple_field_str_xc(tuple, BOX_FK_CONSTRAINT_FIELD_NAME,
+				   &name_len);
 	if (name_len > BOX_NAME_MAX) {
 		tnt_raise(ClientError, errcode,
 			  tt_cstr(name, BOX_INVALID_NAME_MAX),
@@ -3537,9 +3538,8 @@ fkey_def_new_from_tuple(const struct tuple *tuple, uint32_t errcode)
 	size_t fkey_sz = fkey_def_sizeof(link_count, name_len);
 	struct fkey_def *fk_def = (struct fkey_def *) malloc(fkey_sz);
 	if (fk_def == NULL)
-		tnt_raise(OutOfMemory, fkey_sz, "malloc", "fkey_def");
+		tnt_raise(OutOfMemory, fkey_sz, "malloc", "fk_def");
 	auto def_guard = make_scoped_guard([=] { free(fk_def); });
-	memset(fk_def, 0, sizeof(*fk_def));
 	memcpy(fk_def->name, name, name_len);
 	fk_def->name[name_len] = '\0';
 	fk_def->links = (struct field_link *)((char *)&fk_def->name +
@@ -3548,14 +3548,14 @@ fkey_def_new_from_tuple(const struct tuple *tuple, uint32_t errcode)
 	fk_def->field_count = link_count;
 	fk_def->child_id = tuple_field_u32_xc(tuple,
 					      BOX_FK_CONSTRAINT_FIELD_CHILD_ID);
-	fk_def->parent_id = tuple_field_u32_xc(tuple,
-					   BOX_FK_CONSTRAINT_FIELD_PARENT_ID);
-	fk_def->is_deferred = tuple_field_bool_xc(tuple,
-					      BOX_FK_CONSTRAINT_FIELD_DEFERRED);
+	fk_def->parent_id =
+		tuple_field_u32_xc(tuple, BOX_FK_CONSTRAINT_FIELD_PARENT_ID);
+	fk_def->is_deferred =
+		tuple_field_bool_xc(tuple, BOX_FK_CONSTRAINT_FIELD_DEFERRED);
 	const char *match = tuple_field_str_xc(tuple,
 					       BOX_FK_CONSTRAINT_FIELD_MATCH,
 					       &name_len);
-	fk_def->match = fkey_match_by_name(match, name_len);
+	fk_def->match = STRN2ENUM(fkey_match, match, name_len);
 	if (fk_def->match == fkey_match_MAX) {
 		tnt_raise(ClientError, errcode, fk_def->name,
 			  "unknown MATCH clause");
@@ -3563,7 +3563,7 @@ fkey_def_new_from_tuple(const struct tuple *tuple, uint32_t errcode)
 	const char *on_delete_action =
 		tuple_field_str_xc(tuple, BOX_FK_CONSTRAINT_FIELD_ON_DELETE,
 				   &name_len);
-	fk_def->on_delete = fkey_action_by_name(on_delete_action, name_len);
+	fk_def->on_delete = STRN2ENUM(fkey_action, on_delete_action, name_len);
 	if (fk_def->on_delete == fkey_action_MAX) {
 		tnt_raise(ClientError, errcode, fk_def->name,
 			  "unknown ON DELETE action");
@@ -3571,7 +3571,7 @@ fkey_def_new_from_tuple(const struct tuple *tuple, uint32_t errcode)
 	const char *on_update_action =
 		tuple_field_str_xc(tuple, BOX_FK_CONSTRAINT_FIELD_ON_UPDATE,
 				   &name_len);
-	fk_def->on_update = fkey_action_by_name(on_update_action, name_len);
+	fk_def->on_update = STRN2ENUM(fkey_action, on_update_action, name_len);
 	if (fk_def->on_update == fkey_action_MAX) {
 		tnt_raise(ClientError, errcode, fk_def->name,
 			  "unknown ON UPDATE action");
@@ -3752,7 +3752,8 @@ on_replace_dd_fk_constraint(struct trigger * /* trigger*/, void *event)
 		/*
 		 * Search for suitable index in parent space:
 		 * it must be unique and consist exactly from
-		 * referenced columns (but order may be different).
+		 * referenced columns (but order may be
+		 * different).
 		 */
 		struct index *fk_index = NULL;
 		for (uint32_t i = 0; i < parent_space->index_count; ++i) {
