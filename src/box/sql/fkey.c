@@ -872,7 +872,6 @@ sqlite3FkCheck(Parse * pParse,	/* Parse context */
 	 * child table (the table that the foreign key definition is part of).
 	 */
 	for (pFKey = pTab->pFKey; pFKey; pFKey = pFKey->pNextFrom) {
-		Table *pTo;	/* Parent table of foreign key pFKey */
 		Index *pIdx = 0;	/* Index on key columns in pTo */
 		int *aiFree = 0;
 		int *aiCol;
@@ -891,7 +890,7 @@ sqlite3FkCheck(Parse * pParse,	/* Parse context */
 		 * schema items cannot be located, set an error in pParse and return
 		 * early.
 		 */
-		pTo = sqlite3LocateTable(pParse, 0, pFKey->zTo);
+		struct Table *pTo = sqlite3LocateTable(pParse, 0, pFKey->zTo);
 		if (!pTo || sqlite3FkLocateIndex(pParse, pTo, pFKey, &pIdx,
 					    &aiFree))
 				return;
@@ -960,7 +959,8 @@ sqlite3FkCheck(Parse * pParse,	/* Parse context */
 			continue;
 		}
 
-		if (sqlite3FkLocateIndex(pParse, pTab, pFKey, &pIdx, &aiCol))
+		if (sqlite3FkLocateIndex(pParse, pTab, pFKey, &pIdx,
+					 &aiCol) != 0)
 			return;
 		assert(aiCol || pFKey->nCol == 1);
 
