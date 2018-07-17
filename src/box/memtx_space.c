@@ -362,8 +362,6 @@ memtx_space_execute_delete(struct space *space, struct txn *txn,
 		return -1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (exact_key_validate(pk->def->key_def, key, part_count) != 0)
-		return -1;
 	if (index_get(pk, key, part_count, &stmt->old_tuple) != 0)
 		return -1;
 	struct tuple *old_tuple = NULL;
@@ -389,8 +387,6 @@ memtx_space_execute_update(struct space *space, struct txn *txn,
 		return -1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (exact_key_validate(pk->def->key_def, key, part_count) != 0)
-		return -1;
 	if (index_get(pk, key, part_count, &stmt->old_tuple) != 0)
 		return -1;
 

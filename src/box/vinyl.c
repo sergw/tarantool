@@ -572,11 +572,7 @@ vy_lsm_find(struct space *space, uint32_t iid)
 	return vy_lsm(index);
 }
 
-/**
- * Wrapper around vy_lsm_find() which ensures that
- * the found index is unique.
- */
-static  struct vy_lsm *
+struct vy_lsm *
 vy_lsm_find_unique(struct space *space, uint32_t index_id)
 {
 	struct vy_lsm *lsm = vy_lsm_find(space, index_id);
@@ -1608,19 +1604,7 @@ error:
 	return -1;
 }
 
-/**
- * Check that the key can be used for search in a unique index
- * LSM tree.
- * @param  lsm        LSM tree for checking.
- * @param  key        MessagePack'ed data, the array without a
- *                    header.
- * @param  part_count Part count of the key.
- *
- * @retval  0 The key is valid.
- * @retval -1 The key is not valid, the appropriate error is set
- *            in the diagnostics area.
- */
-static inline int
+int
 vy_unique_key_validate(struct vy_lsm *lsm, const char *key,
 		       uint32_t part_count)
 {
@@ -1758,8 +1742,6 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	bool has_secondary = space->index_count > 1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (vy_unique_key_validate(lsm, key, part_count))
-		return -1;
 	/*
 	 * There are two cases when need to get the full tuple
 	 * before deletion.
@@ -1850,8 +1832,6 @@ vy_update(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 		return -1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (vy_unique_key_validate(lsm, key, part_count))
-		return -1;
 
 	if (vy_lsm_full_by_key(lsm, tx, vy_tx_read_view(tx),
 			       key, part_count, &stmt->old_tuple) != 0)

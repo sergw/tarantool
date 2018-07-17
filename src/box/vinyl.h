@@ -33,6 +33,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +41,8 @@ extern "C" {
 
 struct info_handler;
 struct vinyl_engine;
+struct vy_lsm;
+struct space;
 
 struct vinyl_engine *
 vinyl_engine_new(const char *dir, size_t memory,
@@ -87,6 +90,29 @@ vinyl_engine_set_too_long_threshold(struct vinyl_engine *vinyl,
  */
 void
 vinyl_engine_set_snap_io_rate_limit(struct vinyl_engine *vinyl, double limit);
+
+/**
+ * Wrapper around vy_lsm_find() which ensures that
+ * the found index is unique.
+ */
+struct vy_lsm *
+vy_lsm_find_unique(struct space *space, uint32_t index_id);
+
+/**
+ * Check that the key can be used for search in a unique index
+ * LSM tree.
+ * @param  lsm        LSM tree for checking.
+ * @param  key        MessagePack'ed data, the array without a
+ *                    header.
+ * @param  part_count Part count of the key.
+ *
+ * @retval  0 The key is valid.
+ * @retval -1 The key is not valid, the appropriate error is set
+ *            in the diagnostics area.
+ */
+int
+vy_unique_key_validate(struct vy_lsm *lsm, const char *key,
+		       uint32_t part_count);
 
 #ifdef __cplusplus
 } /* extern "C" */
