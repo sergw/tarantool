@@ -126,7 +126,7 @@ sql_table_delete_from(struct Parse *parse, struct SrcList *tab_list,
 		assert(space != NULL);
 		trigger_list = sql_triggers_exist(table, TK_DELETE, NULL, NULL);
 		is_complex = trigger_list != NULL ||
-			fkey_is_required(table->def->id, NULL);
+			     fkey_is_required(table->def->id, NULL);
 	}
 	assert(space != NULL);
 

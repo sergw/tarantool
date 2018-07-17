@@ -302,12 +302,10 @@ sqlite3SchemaClear(sqlite3 * db)
 Schema *
 sqlite3SchemaCreate(sqlite3 * db)
 {
-	Schema *p;
-	p = (Schema *) sqlite3DbMallocZero(0, sizeof(Schema));
-	if (!p) {
+	struct Schema *p = (Schema *) sqlite3DbMallocZero(0, sizeof(Schema));
+	if (p == NULL)
 		sqlite3OomFault(db);
-	} else {
+	else
 		sqlite3HashInit(&p->tblHash);
-	}
 	return p;
 }

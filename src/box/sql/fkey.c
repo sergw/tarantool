@@ -39,7 +39,6 @@
 #include "box/schema.h"
 #include "box/session.h"
 #include "tarantoolInt.h"
-#include "vdbeInt.h"
 
 #ifndef SQLITE_OMIT_TRIGGER
 
@@ -166,10 +165,10 @@
 
 /**
  * This function is called when a row is inserted into or deleted
- * from the child table of foreign key constraint. If an SQL UPDATE
- * is executed on the child table of fkey, this function is invoked
- * twice for each row affected - once to "delete" the old row, and
- * then again to "insert" the new row.
+ * from the child table of foreign key constraint. If an SQL
+ * UPDATE is executed on the child table of fkey, this function is
+ * invoked twice for each row affected - once to "delete" the old
+ * row, and then again to "insert" the new row.
  *
  * Each time it is called, this function generates VDBE code to
  * locate the row in the parent table that corresponds to the row
@@ -177,18 +176,18 @@
  * parent row can be found, no special action is taken. Otherwise,
  * if the parent row can *not* be found in the parent table:
  *
- *   Operation | FK type   | Action taken
- *   ------------------------------------------------------------
- *   INSERT      immediate   Increment the "immediate constraint counter".
+ *   Op   | FK type  | Action taken
+ * ---------------------------------------------------------------
+ * INSERT  immediate Increment the "immediate constraint counter".
  *
- *   DELETE      immediate   Decrement the "immediate constraint counter".
+ * DELETE  immediate Decrement the "immediate constraint counter".
  *
- *   INSERT      deferred    Increment the "deferred constraint counter".
+ * INSERT  deferred  Increment the "deferred constraint counter".
  *
- *   DELETE      deferred    Decrement the "deferred constraint counter".
+ * DELETE  deferred  Decrement the "deferred constraint counter".
  *
  * These operations are identified in the comment at the top of
- * this file (fkey.c) as "I.1" and "D.1".
+ * this file as "I.1" and "D.1".
  *
  * @param parse_context Current parsing context.
  * @param parent Parent table of FK constraint.
@@ -196,13 +195,13 @@
  * @param referenced_idx Id of referenced index.
  * @param reg_data Address of array containing child table row.
  * @param incr_count Increment constraint counter by this value.
- * @param is_ignore If true, pretend parent contains all NULLs.
  */
 static void
 fkey_lookup_parent(struct Parse *parse_context, struct space *parent,
 		   struct fkey_def *fk_def, uint32_t referenced_idx,
-		   int reg_data, int incr_count, bool is_ignore)
+		   int reg_data, int incr_count)
 {
+	assert(incr_count == -1 || incr_count == 1);
 	struct Vdbe *v = sqlite3GetVdbe(parse_context);
 	int cursor = parse_context->nTab - 1;
 	int ok_label = sqlite3VdbeMakeLabel(v);
@@ -217,76 +216,73 @@ fkey_lookup_parent(struct Parse *parse_context, struct space *parent,
 	 * satisfied. No need to search for a matching row in the
 	 * parent table.
 	 */
-	if (incr_count < 0)
+	if (incr_count < 0) {
 		sqlite3VdbeAddOp2(v, OP_FkIfZero, fk_def->is_deferred,
 				  ok_label);
-
-	for (uint32_t i = 0; i < fk_def->field_count; i++) {
-		int iReg = fk_def->links[i].child_field + reg_data + 1;
-		sqlite3VdbeAddOp2(v, OP_IsNull, iReg, ok_label);
 	}
-	if (is_ignore == 0) {
-		uint32_t field_count = fk_def->field_count;
-		int temp_regs = sqlite3GetTempRange(parse_context, field_count);
-		int rec_reg = sqlite3GetTempReg(parse_context);
-		uint32_t id =
-			SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(fk_def->parent_id,
-							       referenced_idx);
-		vdbe_emit_open_cursor(parse_context, cursor, id, parent);
-		for (uint32_t i = 0; i < field_count; ++i) {
-			sqlite3VdbeAddOp2(v, OP_Copy,
-					  fk_def->links[i].child_field + 1 +
-					  reg_data, temp_regs + i);
-		}
-		/*
-		 * If the parent table is the same as the child
-		 * table, and we are about to increment the
-		 * constraint-counter (i.e. this is an INSERT operation),
-		 * then check if the row being inserted matches itself.
-		 * If so, do not increment the constraint-counter.
-		 *
-		 * If any of the parent-key values are NULL, then
-		 * the row cannot match itself. So set JUMPIFNULL
-		 * to make sure we do the OP_Found if any of the
-		 * parent-key values are NULL (at this point it
-		 * is known that none of the child key values are).
-		 */
-		if (parent->def->id == fk_def->child_id && incr_count == 1) {
-			int jump = sqlite3VdbeCurrentAddr(v) + field_count + 1;
-			for (uint32_t i = 0; i < field_count; i++) {
-				int child_col = fk_def->links[i].child_field +
-						1 + reg_data;
-				int parent_col = fk_def->links[i].parent_field +
-						 1 + reg_data;
-				sqlite3VdbeAddOp3(v, OP_Ne, child_col, jump,
-						  parent_col);
-				sqlite3VdbeChangeP5(v, SQLITE_JUMPIFNULL);
-			}
-			sqlite3VdbeGoto(v, ok_label);
-		}
-		struct index *idx = space_index(parent, referenced_idx);
-		assert(idx != NULL);
-		sqlite3VdbeAddOp4(v, OP_MakeRecord, temp_regs, field_count,
-				  rec_reg, sql_index_affinity_str(v->db,
-								 idx->def),
-				  P4_DYNAMIC);
-		sqlite3VdbeAddOp4Int(v, OP_Found, cursor, ok_label, rec_reg, 0);
-		sqlite3ReleaseTempReg(parse_context, rec_reg);
-		sqlite3ReleaseTempRange(parse_context, temp_regs, field_count);
+	struct field_link *link = fk_def->links;
+	for (uint32_t i = 0; i < fk_def->field_count; ++i, ++link) {
+		int reg = link->child_field + reg_data + 1;
+		sqlite3VdbeAddOp2(v, OP_IsNull, reg, ok_label);
 	}
+	uint32_t field_count = fk_def->field_count;
+	int temp_regs = sqlite3GetTempRange(parse_context, field_count);
+	int rec_reg = sqlite3GetTempReg(parse_context);
+	uint32_t id = SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(fk_def->parent_id,
+							     referenced_idx);
+	vdbe_emit_open_cursor(parse_context, cursor, id, parent);
+	link = fk_def->links;
+	for (uint32_t i = 0; i < field_count; ++i, ++link) {
+		sqlite3VdbeAddOp2(v, OP_Copy, link->child_field + 1 + reg_data,
+				  temp_regs + i);
+	}
+	/*
+	 * If the parent table is the same as the child table, and
+	 * we are about to increment the constraint-counter (i.e.
+	 * this is an INSERT operation), then check if the row
+	 * being inserted matches itself. If so, do not increment
+	 * the constraint-counter.
+	 *
+	 * If any of the parent-key values are NULL, then the row
+	 * cannot match itself. So set JUMPIFNULL to make sure we
+	 * do the OP_Found if any of the parent-key values are
+	 * NULL (at this point it is known that none of the child
+	 * key values are).
+	 */
+	if (parent->def->id == fk_def->child_id && incr_count == 1) {
+		int jump = sqlite3VdbeCurrentAddr(v) + field_count + 1;
+		link = fk_def->links;
+		for (uint32_t i = 0; i < field_count; ++i, ++link) {
+			int chcol = link->child_field + 1 + reg_data;
+			int pcol = link->parent_field + 1 + reg_data;
+			sqlite3VdbeAddOp3(v, OP_Ne, chcol, jump, pcol);
+			sqlite3VdbeChangeP5(v, SQLITE_JUMPIFNULL);
+		}
+		sqlite3VdbeGoto(v, ok_label);
+	}
+	struct index *idx = space_index(parent, referenced_idx);
+	assert(idx != NULL);
+	sqlite3VdbeAddOp4(v, OP_MakeRecord, temp_regs, field_count, rec_reg,
+			  sql_index_affinity_str(parse_context->db, idx->def),
+			  P4_DYNAMIC);
+	sqlite3VdbeAddOp4Int(v, OP_Found, cursor, ok_label, rec_reg, 0);
+	sqlite3ReleaseTempReg(parse_context, rec_reg);
+	sqlite3ReleaseTempRange(parse_context, temp_regs, field_count);
 	struct session *user_session = current_session();
 	if (!fk_def->is_deferred &&
-	    !(user_session->sql_flags & SQLITE_DeferFKs) &&
-	    !parse_context->pToplevel && !parse_context->isMultiWrite) {
+	    (user_session->sql_flags & SQLITE_DeferFKs) == 0 &&
+	    parse_context->pToplevel == NULL && !parse_context->isMultiWrite) {
 		/*
-		 * If this is an INSERT statement that will
-		 * insert exactly one row into the table, raise
-		 * a constraint immediately instead of incrementing
-		 * a counter. This is necessary as the VM code is being
-		 * generated for will not open a statement transaction.
+		 * If this is an INSERT statement that will insert
+		 * exactly one row into the table, raise a
+		 * constraint immediately instead of incrementing
+		 * a counter. This is necessary as the VM code is
+		 * being generated for will not open a statement
+		 * transaction.
 		 */
 		assert(incr_count == 1);
-		sqlite3HaltConstraint(parse_context, SQLITE_CONSTRAINT_FOREIGNKEY,
+		sqlite3HaltConstraint(parse_context,
+				      SQLITE_CONSTRAINT_FOREIGNKEY,
 				      ON_CONFLICT_ACTION_ABORT, 0, P4_STATIC,
 				      P5_ConstraintFK);
 	} else {
@@ -356,140 +352,143 @@ exprTableColumn(sqlite3 * db, struct space_def *def, int cursor, i16 column)
 }
 
 /*
- * This function is called to generate code executed when a row is deleted
- * from the parent table of foreign key constraint pFKey and, if pFKey is
- * deferred, when a row is inserted into the same table. When generating
- * code for an SQL UPDATE operation, this function may be called twice -
- * once to "delete" the old row and once to "insert" the new row.
+ * This function is called to generate code executed when a row is
+ * deleted from the parent table of foreign key constraint @a fkey
+ * and, if @a fkey is deferred, when a row is inserted into the
+ * same table. When generating code for an SQL UPDATE operation,
+ * this function may be called twice - once to "delete" the old
+ * row and once to "insert" the new row.
  *
- * Parameter nIncr is passed -1 when inserting a row (as this may decrease
- * the number of FK violations in the db) or +1 when deleting one (as this
- * may increase the number of FK constraint problems).
+ * Parameter incr_count is passed -1 when inserting a row (as this
+ * may decrease the number of FK violations in the db) or +1 when
+ * deleting one (as this may increase the number of FK constraint
+ * problems).
  *
- * The code generated by this function scans through the rows in the child
- * table that correspond to the parent table row being deleted or inserted.
- * For each child row found, one of the following actions is taken:
+ * The code generated by this function scans through the rows in
+ * the child table that correspond to the parent table row being
+ * deleted or inserted. For each child row found, one of the
+ * following actions is taken:
  *
- *   Operation | FK type   | Action taken
- *   --------------------------------------------------------------------------
- *   DELETE      immediate   Increment the "immediate constraint counter".
- *                           Or, if the ON (UPDATE|DELETE) action is RESTRICT,
- *                           throw a "FOREIGN KEY constraint failed" exception.
+ *   Op  | FK type  | Action taken
+ * ---------------------------------------------------------------
+ * DELETE immediate  Increment the "immediate constraint counter".
+ *                   Or, if the ON (UPDATE|DELETE) action is
+ *                   RESTRICT, throw a "FOREIGN KEY constraint
+ *                   failed" exception.
  *
- *   INSERT      immediate   Decrement the "immediate constraint counter".
+ * INSERT immediate  Decrement the "immediate constraint counter".
  *
- *   DELETE      deferred    Increment the "deferred constraint counter".
- *                           Or, if the ON (UPDATE|DELETE) action is RESTRICT,
- *                           throw a "FOREIGN KEY constraint failed" exception.
+ * DELETE deferred   Increment the "deferred constraint counter".
+ *                   Or, if the ON (UPDATE|DELETE) action is
+ *                   RESTRICT, throw a "FOREIGN KEY constraint
+ *                   failed" exception.
  *
- *   INSERT      deferred    Decrement the "deferred constraint counter".
+ * INSERT deferred   Decrement the "deferred constraint counter".
  *
- * These operations are identified in the comment at the top of this file
- * (fkey.c) as "I.2" and "D.2".
+ * These operations are identified in the comment at the top of
+ * this file as "I.2" and "D.2".
+ * @param parser SQL parser.
+ * @param src The child table to be scanned.
+ * @param tab Parent table.
+ * @param fkey The foreign key linking src to tab.
+ * @param reg_data Register from which parent row data starts.
+ * @param incr_count Amount to increment deferred counter by.
  */
 static void
-fkScanChildren(Parse * pParse,	/* Parse context */
-	       SrcList * pSrc,	/* The child table to be scanned */
-	       Table * pTab,	/* The parent table */
-	       struct fkey_def *fkey,	/* The foreign key linking pSrc to pTab */
-	       int regData,	/* Parent row data starts here */
-	       int nIncr	/* Amount to increment deferred counter by */
-    )
+fkScanChildren(struct Parse *parser, struct SrcList *src, struct Table *tab,
+	       struct fkey_def *fkey, int reg_data, int incr_count)
 {
-	sqlite3 *db = pParse->db;	/* Database handle */
-	Expr *pWhere = 0;	/* WHERE clause to scan with */
-	NameContext sNameContext;	/* Context used to resolve WHERE clause */
-	WhereInfo *pWInfo;	/* Context used by sqlite3WhereXXX() */
-	int iFkIfZero = 0;	/* Address of OP_FkIfZero */
-	Vdbe *v = sqlite3GetVdbe(pParse);
+	assert(incr_count == -1 || incr_count == 1);
+	struct sqlite3 *db = parser->db;
+	struct Expr *where = NULL;
+	/* Address of OP_FkIfZero. */
+	int fkifzero_label = 0;
+	struct Vdbe *v = sqlite3GetVdbe(parser);
 
-	if (nIncr < 0) {
-		iFkIfZero =
-		    sqlite3VdbeAddOp2(v, OP_FkIfZero, fkey->is_deferred, 0);
+	if (incr_count < 0) {
+		fkifzero_label = sqlite3VdbeAddOp2(v, OP_FkIfZero,
+						   fkey->is_deferred, 0);
 		VdbeCoverage(v);
 	}
 
 	struct space *child_space = space_by_id(fkey->child_id);
 	assert(child_space != NULL);
-	/* Create an Expr object representing an SQL expression like:
+	/*
+	 * Create an Expr object representing an SQL expression
+	 * like:
 	 *
-	 *   <parent-key1> = <child-key1> AND <parent-key2> = <child-key2> ...
+	 * <parent-key1> = <child-key1> AND <parent-key2> = <child-key2> ...
 	 *
-	 * The collation sequence used for the comparison should be that of
-	 * the parent key columns. The affinity of the parent key column should
-	 * be applied to each child key value before the comparison takes place.
+	 * The collation sequence used for the comparison should
+	 * be that of the parent key columns. The affinity of the
+	 * parent key column should be applied to each child key
+	 * value before the comparison takes place.
 	 */
 	for (uint32_t i = 0; i < fkey->field_count; i++) {
-		Expr *pLeft;	/* Value from parent table row */
-		Expr *pRight;	/* Column ref to child table */
-		Expr *pEq;	/* Expression (pLeft = pRight) */
-		i16 iCol;	/* Index of column in child table */
-		const char *zCol;	/* Name of column in child table */
-
-		iCol = fkey->links[i].parent_field;
-		pLeft = exprTableRegister(pParse, pTab, regData, iCol);
-		iCol = fkey->links[i].child_field;
-		assert(iCol >= 0);
-		zCol = child_space->def->fields[iCol].name;
-		pRight = sqlite3Expr(db, TK_ID, zCol);
-		pEq = sqlite3PExpr(pParse, TK_EQ, pLeft, pRight);
-		pWhere = sqlite3ExprAnd(db, pWhere, pEq);
+		uint32_t fieldno = fkey->links[i].parent_field;
+		struct Expr *pexpr =
+			exprTableRegister(parser, tab, reg_data, fieldno);
+		fieldno = fkey->links[i].child_field;
+		const char *field_name = child_space->def->fields[fieldno].name;
+		struct Expr *chexpr = sqlite3Expr(db, TK_ID, field_name);
+		struct Expr *eq = sqlite3PExpr(parser, TK_EQ, pexpr, chexpr);
+		where = sqlite3ExprAnd(db, where, eq);
 	}
 
-	/* If the child table is the same as the parent table, then add terms
-	 * to the WHERE clause that prevent this entry from being scanned.
-	 * The added WHERE clause terms are like this:
+	/*
+	 * If the child table is the same as the parent table,
+	 * then add terms to the WHERE clause that prevent this
+	 * entry from being scanned. The added WHERE clause terms
+	 * are like this:
 	 *
 	 *     NOT( $current_a==a AND $current_b==b AND ... )
 	 *     The primary key is (a,b,...)
 	 */
-	if (pTab->def->id == fkey->child_id && nIncr > 0) {
-		Expr *pNe;	/* Expression (pLeft != pRight) */
-		Expr *pLeft;	/* Value from parent table row */
-		Expr *pRight;	/* Column ref to child table */
-
-		Expr *pEq, *pAll = 0;
+	if (tab->def->id == fkey->child_id && incr_count > 0) {
+		struct Expr *expr = NULL, *pexpr, *chexpr, *eq;
 		for (uint32_t i = 0; i < fkey->field_count; i++) {
-			i16 iCol = fkey->links[i].parent_field;
-			assert(iCol >= 0);
-			pLeft = exprTableRegister(pParse, pTab, regData, iCol);
-			pRight = exprTableColumn(db, pTab->def,
-						 pSrc->a[0].iCursor, iCol);
-			pEq = sqlite3PExpr(pParse, TK_EQ, pLeft, pRight);
-			pAll = sqlite3ExprAnd(db, pAll, pEq);
+			uint32_t fieldno = fkey->links[i].parent_field;
+			pexpr = exprTableRegister(parser, tab, reg_data,
+						  fieldno);
+			chexpr = exprTableColumn(db, tab->def,
+						 src->a[0].iCursor, fieldno);
+			eq = sqlite3PExpr(parser, TK_EQ, pexpr, chexpr);
+			expr = sqlite3ExprAnd(db, expr, eq);
 		}
-		pNe = sqlite3PExpr(pParse, TK_NOT, pAll, 0);
-		pWhere = sqlite3ExprAnd(db, pWhere, pNe);
+		struct Expr *pNe = sqlite3PExpr(parser, TK_NOT, expr, 0);
+		where = sqlite3ExprAnd(db, where, pNe);
 	}
 
 	/* Resolve the references in the WHERE clause. */
-	memset(&sNameContext, 0, sizeof(NameContext));
-	sNameContext.pSrcList = pSrc;
-	sNameContext.pParse = pParse;
-	sqlite3ResolveExprNames(&sNameContext, pWhere);
+	struct NameContext namectx;
+	memset(&namectx, 0, sizeof(namectx));
+	namectx.pSrcList = src;
+	namectx.pParse = parser;
+	sqlite3ResolveExprNames(&namectx, where);
 
-	/* Create VDBE to loop through the entries in pSrc that match the WHERE
-	 * clause. For each row found, increment either the deferred or immediate
-	 * foreign key constraint counter.
+	/*
+	 * Create VDBE to loop through the entries in src that
+	 * match the WHERE clause. For each row found, increment
+	 * either the deferred or immediate foreign key constraint
+	 * counter.
 	 */
-	pWInfo = sqlite3WhereBegin(pParse, pSrc, pWhere, 0, 0, 0, 0);
-	sqlite3VdbeAddOp2(v, OP_FkCounter, fkey->is_deferred, nIncr);
-	if (pWInfo) {
-		sqlite3WhereEnd(pWInfo);
-	}
+	struct WhereInfo *info =
+		sqlite3WhereBegin(parser, src, where, NULL, NULL, 0, 0);
+	sqlite3VdbeAddOp2(v, OP_FkCounter, fkey->is_deferred, incr_count);
+	if (info != NULL)
+		sqlite3WhereEnd(info);
 
 	/* Clean up the WHERE clause constructed above. */
-	sql_expr_delete(db, pWhere, false);
-	if (iFkIfZero)
-		sqlite3VdbeJumpHere(v, iFkIfZero);
+	sql_expr_delete(db, where, false);
+	if (fkifzero_label != 0)
+		sqlite3VdbeJumpHere(v, fkifzero_label);
 }
 
 /**
- * The second argument points to an fkey object representing
- * a foreign key. An UPDATE statement against child table is
- * currently being processed. For each column of the table that
- * is actually updated, the corresponding element in the changes
- * array is zero or greater (if a column is unmodified the
+ * An UPDATE statement against the table having foreign key with
+ * definition @a fkey is currently being processed. For each
+ * updated column of the table the corresponding element in @a
+ * changes array is zero or greater (if a column is unmodified the
  * corresponding element is set to -1).
  *
  * @param fkey FK constraint definition.
@@ -511,11 +510,6 @@ fkey_child_is_modified(const struct fkey_def *fkey, int *changes)
 /**
  * Works the same as fkey_child_is_modified(), but checks are
  * provided on parent table.
- *
- * @param fkey FK constraint definition.
- * @param changes Array indicating modified columns.
- * @retval true, if any of the columns that are part of the parent
- *         key for FK constraint are modified.
  */
 static bool
 fkey_parent_is_modified(const struct fkey_def *fkey, int *changes)
@@ -536,92 +530,109 @@ static bool
 fkey_action_is_set_null(struct Parse *parse_context, const struct fkey *fkey)
 {
 	struct Parse *top_parse = sqlite3ParseToplevel(parse_context);
-	if (top_parse->pTriggerPrg) {
+	if (top_parse->pTriggerPrg != NULL) {
 		struct sql_trigger *trigger = top_parse->pTriggerPrg->trigger;
 		if ((trigger == fkey->on_delete_trigger &&
 		     fkey->def->on_delete == FKEY_ACTION_SET_NULL) ||
 		    (trigger == fkey->on_update_trigger &&
-		     fkey->def->on_update == FKEY_ACTION_SET_NULL)) {
+		     fkey->def->on_update == FKEY_ACTION_SET_NULL))
 			return true;
-		}
 	}
 	return false;
 }
 
 /*
- * This function is called when inserting, deleting or updating a row of
- * table pTab to generate VDBE code to perform foreign key constraint
- * processing for the operation.
+ * This function is called when inserting, deleting or updating a
+ * row of table tab to generate VDBE code to perform foreign key
+ * constraint processing for the operation.
  *
- * For a DELETE operation, parameter regOld is passed the index of the
- * first register in an array of (pTab->nCol+1) registers containing the
- * PK of the row being deleted, followed by each of the column values
- * of the row being deleted, from left to right. Parameter regNew is passed
- * zero in this case.
+ * For a DELETE operation, parameter reg_old is passed the index
+ * of the first register in an array of (tab->def->field_count +
+ * 1) registers containing the PK of the row being deleted,
+ * followed by each of the column values of the row being deleted,
+ * from left to right. Parameter reg_new is passed zero in this
+ * case.
  *
- * For an INSERT operation, regOld is passed zero and regNew is passed the
- * first register of an array of (pTab->nCol+1) registers containing the new
- * row data.
+ * For an INSERT operation, reg_old is passed zero and reg_new is
+ * passed the first register of an array of
+ * (tab->def->field_count + 1) registers containing the new row
+ * data.
  *
- * For an UPDATE operation, this function is called twice. Once before
- * the original record is deleted from the table using the calling convention
- * described for DELETE. Then again after the original record is deleted
- * but before the new record is inserted using the INSERT convention.
+ * For an UPDATE operation, this function is called twice. Once
+ * before the original record is deleted from the table using the
+ * calling convention described for DELETE. Then again after the
+ * original record is deleted but before the new record is
+ * inserted using the INSERT convention.
+ *
+ * @param parser SQL parser.
+ * @param tab Table from which the row is deleted.
+ * @param reg_old Register with deleted row.
+ * @param reg_new Register with inserted row.
+ * @param changed_cols Array of updated columns. Can be NULL.
  */
 void
-sqlite3FkCheck(Parse * pParse,	/* Parse context */
-	       Table * pTab,	/* Row is being deleted from this table */
-	       int regOld,	/* Previous row data is stored here */
-	       int regNew,	/* New row data is stored here */
-	       int *aChange	/* Array indicating UPDATEd columns (or 0) */
-    )
+sqlite3FkCheck(struct Parse *parser, struct Table *tab, int reg_old,
+	       int reg_new, int *changed_cols)
 {
-	sqlite3 *db = pParse->db;	/* Database handle */
+	struct sqlite3 *db = parser->db;
 	struct session *user_session = current_session();
 
-	/* Exactly one of regOld and regNew should be non-zero. */
-	assert((regOld == 0) != (regNew == 0));
+	/*
+	 * Exactly one of reg_old and reg_new should be non-zero.
+	 */
+	assert((reg_old == 0) != (reg_new == 0));
 
-	/* If foreign-keys are disabled, this function is a no-op. */
+	/*
+	 * If foreign-keys are disabled, this function is a no-op.
+	 */
 	if ((user_session->sql_flags & SQLITE_ForeignKeys) == 0)
 		return;
 
 	/*
 	 * Loop through all the foreign key constraints for which
-	 * pTab is the child table.
+	 * tab is the child table.
 	 */
-	struct space *space = space_by_id(pTab->def->id);
+	struct space *space = space_by_id(tab->def->id);
 	assert(space != NULL);
 	for (struct fkey *fk = space->child_fkey; fk != NULL;
 	     fk = fk->fkey_child_next) {
 		struct fkey_def *fk_def = fk->def;
-		int bIgnore = 0;
-		if (aChange != NULL && space->def->id != fk_def->parent_id &&
-		    !fkey_child_is_modified(fk_def, aChange))
+		if (changed_cols != NULL &&
+		    space->def->id != fk_def->parent_id &&
+		    !fkey_child_is_modified(fk_def, changed_cols))
 			continue;
-		pParse->nTab++;
+		parser->nTab++;
 		struct space *parent = space_by_id(fk_def->parent_id);
 		assert(parent != NULL);
-		if (regOld != 0) {
-			/* A row is being removed from the child table. Search for the parent.
-			 * If the parent does not exist, removing the child row resolves an
-			 * outstanding foreign key constraint violation.
+		if (reg_old != 0) {
+			/*
+			 * A row is being removed from the child
+			 * table. Search for the parent. If the
+			 * parent does not exist, removing the
+			 * child row resolves an outstanding
+			 * foreign key constraint violation.
 			 */
-			fkey_lookup_parent(pParse, parent, fk_def, fk->index_id,
-					   regOld, -1, bIgnore);
+			fkey_lookup_parent(parser, parent, fk_def, fk->index_id,
+					   reg_old, -1);
 		}
-		if (regNew != 0 && !fkey_action_is_set_null(pParse, fk)) {
-			/* A row is being added to the child table. If a parent row cannot
-			 * be found, adding the child row has violated the FK constraint.
+		if (reg_new != 0 && !fkey_action_is_set_null(parser, fk)) {
+			/*
+			 * A row is being added to the child
+			 * table. If a parent row cannot be found,
+			 * adding the child row has violated the
+			 * FK constraint.
 			 *
-			 * If this operation is being performed as part of a trigger program
-			 * that is actually a "SET NULL" action belonging to this very
-			 * foreign key, then omit this scan altogether. As all child key
-			 * values are guaranteed to be NULL, it is not possible for adding
-			 * this row to cause an FK violation.
+			 * If this operation is being performed as
+			 * part of a trigger program that is
+			 * actually a "SET NULL" action belonging
+			 * to this very foreign key, then omit
+			 * this scan altogether. As all child key
+			 * values are guaranteed to be NULL, it is
+			 * not possible for adding this row to
+			 * cause an FK violation.
 			 */
-			fkey_lookup_parent(pParse, parent, fk_def, fk->index_id,
-					   regNew, +1, bIgnore);
+			fkey_lookup_parent(parser, parent, fk_def, fk->index_id,
+					   reg_new, +1);
 		}
 	}
 	/*
@@ -631,69 +642,79 @@ sqlite3FkCheck(Parse * pParse,	/* Parse context */
 	for (struct fkey *fk = space->parent_fkey; fk != NULL;
 	     fk = fk->fkey_parent_next) {
 		struct fkey_def *fk_def = fk->def;
-		if (aChange != NULL &&
-		    !fkey_parent_is_modified(fk_def, aChange))
+		if (changed_cols != NULL &&
+		    !fkey_parent_is_modified(fk_def, changed_cols))
 			continue;
 		if (!fk_def->is_deferred &&
-		    !(user_session->sql_flags & SQLITE_DeferFKs) &&
-		    !pParse->pToplevel && !pParse->isMultiWrite) {
-			assert(regOld == 0 && regNew != 0);
-			/* Inserting a single row into a parent table cannot cause (or fix)
-			 * an immediate foreign key violation. So do nothing in this case.
+		    (user_session->sql_flags & SQLITE_DeferFKs) == 0 &&
+		    parser->pToplevel == NULL && !parser->isMultiWrite) {
+			assert(reg_old == 0 && reg_new != 0);
+			/*
+			 * Inserting a single row into a parent
+			 * table cannot cause (or fix) an
+			 * immediate foreign key violation. So do
+			 * nothing in this case.
 			 */
 			continue;
 		}
 
-		/* Create a SrcList structure containing the child table.  We need the
-		 * child table as a SrcList for sqlite3WhereBegin()
+		/*
+		 * Create a SrcList structure containing the child
+		 * table. We need the child table as a SrcList for
+		 * sqlite3WhereBegin().
 		 */
-		struct SrcList *pSrc = sqlite3SrcListAppend(db, 0, 0);
-		if (pSrc != NULL) {
-			struct SrcList_item *pItem = pSrc->a;
-			struct space *child = space_by_id(fk->def->child_id);
-			assert(child != NULL);
-			struct Table *tab =
-				sqlite3HashFind(&db->pSchema->tblHash,
-						child->def->name);
-			pItem->pTab = tab;
-			pItem->zName = sqlite3DbStrDup(db, child->def->name);
-			pItem->pTab->nTabRef++;
-			pItem->iCursor = pParse->nTab++;
+		struct SrcList *src = sqlite3SrcListAppend(db, NULL, NULL);
+		if (src == NULL)
+			continue;
+		struct SrcList_item *item = src->a;
+		struct space *child = space_by_id(fk->def->child_id);
+		assert(child != NULL);
+		struct Table *child_tab = sqlite3HashFind(&db->pSchema->tblHash,
+							  child->def->name);
+		item->pTab = child_tab;
+		item->zName = sqlite3DbStrDup(db, child->def->name);
+		item->pTab->nTabRef++;
+		item->iCursor = parser->nTab++;
 
-			if (regNew != 0) {
-				fkScanChildren(pParse, pSrc, pTab, fk->def,
-					       regNew, -1);
-			}
-			if (regOld != 0) {
-				enum fkey_action action = fk_def->on_update;
-				fkScanChildren(pParse, pSrc, pTab, fk->def,
-					       regOld, 1);
-				/* If this is a deferred FK constraint, or a CASCADE or SET NULL
-				 * action applies, then any foreign key violations caused by
-				 * removing the parent key will be rectified by the action trigger.
-				 * So do not set the "may-abort" flag in this case.
-				 *
-				 * Note 1: If the FK is declared "ON UPDATE CASCADE", then the
-				 * may-abort flag will eventually be set on this statement anyway
-				 * (when this function is called as part of processing the UPDATE
-				 * within the action trigger).
-				 *
-				 * Note 2: At first glance it may seem like SQLite could simply omit
-				 * all OP_FkCounter related scans when either CASCADE or SET NULL
-				 * applies. The trouble starts if the CASCADE or SET NULL action
-				 * trigger causes other triggers or action rules attached to the
-				 * child table to fire. In these cases the fk constraint counters
-				 * might be set incorrectly if any OP_FkCounter related scans are
-				 * omitted.
-				 */
-				if (!fk_def->is_deferred &&
-				    action != FKEY_ACTION_CASCADE &&
-				    action != FKEY_ACTION_SET_NULL) {
-					sqlite3MayAbort(pParse);
-				}
-			}
-			sqlite3SrcListDelete(db, pSrc);
+		if (reg_new != 0)
+			fkScanChildren(parser, src, tab, fk->def, reg_new, -1);
+		if (reg_old != 0) {
+			enum fkey_action action = fk_def->on_update;
+			fkScanChildren(parser, src, tab, fk->def, reg_old, 1);
+			/*
+			 * If this is a deferred FK constraint, or
+			 * a CASCADE or SET NULL action applies,
+			 * then any foreign key violations caused
+			 * by removing the parent key will be
+			 * rectified by the action trigger. So do
+			 * not set the "may-abort" flag in this
+			 * case.
+			 *
+			 * Note 1: If the FK is declared "ON
+			 * UPDATE CASCADE", then the may-abort
+			 * flag will eventually be set on this
+			 * statement anyway (when this function is
+			 * called as part of processing the UPDATE
+			 * within the action trigger).
+			 *
+			 * Note 2: At first glance it may seem
+			 * like SQLite could simply omit all
+			 * OP_FkCounter related scans when either
+			 * CASCADE or SET NULL applies. The
+			 * trouble starts if the CASCADE or SET
+			 * NULL action trigger causes other
+			 * triggers or action rules attached to
+			 * the child table to fire. In these cases
+			 * the fk constraint counters might be set
+			 * incorrectly if any OP_FkCounter related
+			 * scans are omitted.
+			 */
+			if (!fk_def->is_deferred &&
+			    action != FKEY_ACTION_CASCADE &&
+			    action != FKEY_ACTION_SET_NULL)
+				sqlite3MayAbort(parser);
 		}
+		sqlite3SrcListDelete(db, src);
 	}
 }
 
@@ -726,7 +747,7 @@ bool
 fkey_is_required(uint32_t space_id, int *changes)
 {
 	struct session *user_session = current_session();
-	if (user_session->sql_flags & SQLITE_ForeignKeys) {
+	if ((user_session->sql_flags & SQLITE_ForeignKeys) != 0) {
 		struct space *space = space_by_id(space_id);
 		if (changes == NULL) {
 			/*
@@ -759,20 +780,20 @@ fkey_is_required(uint32_t space_id, int *changes)
 /**
  * This function is called when an UPDATE or DELETE operation is
  * being compiled on table pTab, which is the parent table of
- * foreign-key pFKey.
+ * foreign-key fkey.
  * If the current operation is an UPDATE, then the pChanges
  * parameter is passed a pointer to the list of columns being
  * modified. If it is a DELETE, pChanges is passed a NULL pointer.
  *
  * It returns a pointer to a sql_trigger structure containing a
  * trigger equivalent to the ON UPDATE or ON DELETE action
- * specified by pFKey.
+ * specified by fkey.
  * If the action is "NO ACTION" or "RESTRICT", then a NULL pointer
  * is returned (these actions require no special handling by the
  * triggers sub-system, code for them is created by
  * fkScanChildren()).
  *
- * For example, if pFKey is the foreign key and pTab is table "p"
+ * For example, if fkey is the foreign key and pTab is table "p"
  * in the following schema:
  *
  *   CREATE TABLE p(pk PRIMARY KEY);
@@ -790,19 +811,18 @@ fkey_is_required(uint32_t space_id, int *changes)
  *
  * @param pParse Parse context.
  * @param pTab Table being updated or deleted from.
- * @param pFKey Foreign key to get action for.
- * @param pChanges Change-list for UPDATE, NULL for DELETE.
+ * @param fkey Foreign key to get action for.
+ * @param is_update True if action is on update.
  *
  * @retval not NULL on success.
  * @retval NULL on failure.
  */
 static struct sql_trigger *
 fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
-		struct ExprList *pChanges)
+		bool is_update)
 {
 	sqlite3 *db = pParse->db;	/* Database handle */
 	struct session *user_session = current_session();
-	bool is_update = pChanges != NULL;
 	struct fkey_def *fk_def = fkey->def;
 	enum fkey_action action = is_update ? fk_def->on_update :
 					      fk_def->on_delete;
@@ -824,15 +844,14 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 			Token tNew = { "new", 3, false };	/* Literal "new" token */
 			Token tFromCol;	/* Name of column in child table */
 			Token tToCol;	/* Name of column in parent table */
-			int iFromCol;	/* Idx of column in child table */
 			Expr *pEq;	/* tFromCol = OLD.tToCol */
 
-			iFromCol = fk_def->links[i].child_field;
-			sqlite3TokenInit(&tToCol,
-					 pTab->def->fields[fk_def->links[i].parent_field].name);
+			uint32_t pcol = fk_def->links[i].parent_field;
+			sqlite3TokenInit(&tToCol, pTab->def->fields[pcol].name);
 
+			uint32_t chcol = fk_def->links[i].child_field;
 			sqlite3TokenInit(&tFromCol,
-					 child_space->def->fields[iFromCol].name);
+					 child_space->def->fields[chcol].name);
 
 			/* Create the expression "OLD.zToCol = zFromCol". It is important
 			 * that the "OLD.zToCol" term is on the LHS of the = operator, so
@@ -859,7 +878,7 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 			 *
 			 *    WHEN NOT(old.col1 = new.col1 AND ... AND old.colN = new.colN)
 			 */
-			if (pChanges) {
+			if (is_update) {
 				pEq = sqlite3PExpr(pParse, TK_EQ,
 						   sqlite3PExpr(pParse, TK_DOT,
 								sqlite3ExprAlloc
@@ -879,8 +898,8 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 				pWhen = sqlite3ExprAnd(db, pWhen, pEq);
 			}
 
-			if (action != FKEY_ACTION_RESTRICT
-			    && (action != FKEY_ACTION_CASCADE || pChanges)) {
+			if (action != FKEY_ACTION_RESTRICT &&
+			    (action != FKEY_ACTION_CASCADE || is_update)) {
 				Expr *pNew;
 				if (action == FKEY_ACTION_CASCADE) {
 					pNew = sqlite3PExpr(pParse, TK_DOT,
@@ -896,7 +915,7 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 					uint32_t space_id = fk_def->child_id;
 					Expr *pDflt =
 						space_column_default_expr(
-							space_id, (uint32_t)iFromCol);
+							space_id, chcol);
 					if (pDflt) {
 						pNew =
 						    sqlite3ExprDup(db, pDflt,
@@ -920,7 +939,7 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 		}
 
 		const char *zFrom = child_space->def->name;
-		uint32_t nFrom = sqlite3Strlen30(zFrom);
+		uint32_t nFrom = strlen(zFrom);
 
 		if (action == FKEY_ACTION_RESTRICT) {
 			Token tFrom;
@@ -987,7 +1006,7 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 			pStep->op = TK_SELECT;
 			break;
 		case FKEY_ACTION_CASCADE:
-			if (pChanges == NULL) {
+			if (! is_update) {
 				pStep->op = TK_DELETE;
 				break;
 			}
@@ -997,11 +1016,13 @@ fkActionTrigger(struct Parse *pParse, struct Table *pTab, struct fkey *fkey,
 		}
 
 		pStep->trigger = trigger;
-		if (is_update)
+		if (is_update) {
 			fkey->on_update_trigger = trigger;
-		else
+			trigger->op = TK_UPDATE;
+		} else {
 			fkey->on_delete_trigger = trigger;
-		trigger->op = (pChanges ? TK_UPDATE : TK_DELETE);
+			trigger->op = TK_DELETE;
+		}
 	}
 
 	return trigger;
@@ -1025,24 +1046,21 @@ sqlite3FkActions(Parse * pParse,	/* Parse context */
 	 * for this operation (either update or delete), invoke the associated
 	 * trigger sub-program.
 	 */
-	if (user_session->sql_flags & SQLITE_ForeignKeys) {
-		struct space *space = space_by_id(pTab->def->id);
-		assert(space != NULL);
-		for (struct fkey *fkey = space->parent_fkey; fkey != NULL;
-		     fkey = fkey->fkey_parent_next) {
-			if (aChange == 0 ||
-			    fkey_parent_is_modified(fkey->def, aChange)) {
-				struct sql_trigger *pAct =
-					fkActionTrigger(pParse, pTab, fkey,
-							pChanges);
-				if (pAct == NULL)
-					continue;
-				vdbe_code_row_trigger_direct(pParse, pAct, pTab,
-							     regOld,
-							     ON_CONFLICT_ACTION_ABORT,
-							     0);
-			}
-		}
+	if ((user_session->sql_flags & SQLITE_ForeignKeys) == 0)
+		return;
+	struct space *space = space_by_id(pTab->def->id);
+	assert(space != NULL);
+	for (struct fkey *fkey = space->parent_fkey; fkey != NULL;
+	     fkey = fkey->fkey_parent_next) {
+		if (aChange != NULL &&
+		    !fkey_parent_is_modified(fkey->def, aChange))
+			continue;
+		struct sql_trigger *pAct =
+			fkActionTrigger(pParse, pTab, fkey, pChanges != NULL);
+		if (pAct == NULL)
+			continue;
+		vdbe_code_row_trigger_direct(pParse, pAct, pTab, regOld,
+					     ON_CONFLICT_ACTION_ABORT, 0);
 	}
 }
 

@@ -1816,18 +1816,14 @@ resolve_link(struct Parse *parse_context, const struct space_def *def,
 	     const char *field_name, uint32_t *link)
 {
 	assert(link != NULL);
-	uint32_t j;
-	for (j = 0; j < def->field_count; ++j) {
+	for (uint32_t j = 0; j < def->field_count; ++j) {
 		if (strcmp(field_name, def->fields[j].name) == 0) {
 			*link = j;
-			break;
+			return 0;
 		}
 	}
-	if (j == def->field_count) {
-		sqlite3ErrorMsg(parse_context, "no such column %s", field_name);
-		return -1;
-	}
-	return 0;
+	sqlite3ErrorMsg(parse_context, "no such column %s", field_name);
+	return -1;
 }
 
 /*
@@ -2411,11 +2407,9 @@ sql_drop_table(struct Parse *parse_context, struct SrcList *table_name_list,
 	 *    removing indexes from _index space and eventually
 	 *    tuple with corresponding space_id from _space.
 	 */
-	if (space_fkey_check_references(space)) {
-		for (struct fkey *fk = space->parent_fkey; fk != NULL;
-		     fk = fk->fkey_parent_next) {
-			if (fkey_is_self_referenced(fk->def))
-				continue;
+	for (struct fkey *fk = space->parent_fkey; fk != NULL;
+	     fk = fk->fkey_parent_next) {
+		if (! fkey_is_self_referenced(fk->def)) {
 			sqlite3ErrorMsg(parse_context, "can't drop table %s: "
 					"other objects depend on it",
 					space->def->name);
@@ -2488,8 +2482,8 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 	uint32_t child_cols_count;
 	if (child_cols == NULL) {
 		if (is_alter) {
-			sqlite3ErrorMsg(parse_context,
-					"referencing columns are not specified");
+			sqlite3ErrorMsg(parse_context, "referencing columns "\
+					"are not specified");
 			goto exit_create_fk;
 		}
 		child_cols_count = 1;
@@ -2513,11 +2507,9 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 		struct fkey_parse *fk = region_alloc(&parse_context->region,
 						     sizeof(*fk));
 		if (fk == NULL) {
-			diag_set(OutOfMemory, sizeof(*fk), "region",
-				 "struct fkey_parse");
-			parse_context->rc = SQL_TARANTOOL_ERROR;
-			parse_context->nErr++;
-			goto exit_create_fk;
+			diag_set(OutOfMemory, sizeof(*fk), "region_alloc",
+				 "fk");
+			goto tnt_error;
 		}
 		memset(fk, 0, sizeof(*fk));
 		struct fkey_parse *last_fk = parse_context->new_fkey;
@@ -2535,9 +2527,11 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 	 * self-referenced, but in this case parent (which is
 	 * also child) table will definitely exist.
 	 */
-	is_self_referenced = is_alter ? false :
-			     !strcmp(parent_name, new_tab->def->name);
+	is_self_referenced = !is_alter &&
+			     strcmp(parent_name, new_tab->def->name) == 0;
+	struct space *parent_space;
 	if (parent_id == BOX_ID_NIL) {
+		parent_space = NULL;
 		if (is_self_referenced) {
 			parse_context->new_fkey->selfref_cols = parent_cols;
 			parse_context->new_fkey->is_self_referenced = true;
@@ -2545,12 +2539,14 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 			diag_set(ClientError, ER_NO_SUCH_SPACE, parent_name);;
 			goto tnt_error;
 		}
-	}
-	struct space *parent_space = space_by_id(parent_id);
-	if (parent_space != NULL && parent_space->def->opts.is_view) {
-		sqlite3ErrorMsg(parse_context,
-				"referenced table can't be view");
-		goto exit_create_fk;
+	} else {
+		parent_space = space_by_id(parent_id);
+		assert(parent_space != NULL);
+		if (parent_space->def->opts.is_view) {
+			sqlite3ErrorMsg(parse_context,
+					"referenced table can't be view");
+			goto exit_create_fk;
+		}
 	}
 	if (parent_cols != NULL) {
 		if (parent_cols->nExpr != (int) child_cols_count) {
@@ -2613,8 +2609,7 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 		if (!is_self_referenced && parent_cols == NULL) {
 			struct key_def *pk_def =
 				parent_space->index[0]->def->key_def;
-			fk->links[i].parent_field =
-				pk_def->parts[i].fieldno;
+			fk->links[i].parent_field = pk_def->parts[i].fieldno;
 		} else if (!is_self_referenced &&
 			   columnno_by_name(parse_context, parent_space,
 					    parent_cols->a[i].zName,
@@ -2625,8 +2620,9 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 			if (child_cols == NULL) {
 				assert(i == 0);
 				/*
-				 * In this case there must be only one link
-				 * (the last column added), so we can break
+				 * In this case there must be only
+				 * one link (the last column
+				 * added), so we can break
 				 * immediately.
 				 */
 				fk->links[0].child_field =
@@ -2640,8 +2636,9 @@ sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
 		/* In case of ALTER parent table must exist. */
 		} else if (columnno_by_name(parse_context, child_space,
 					    child_cols->a[i].zName,
-					    &fk->links[i].child_field) != 0)
-				goto exit_create_fk;
+					    &fk->links[i].child_field) != 0) {
+			goto exit_create_fk;
+		}
 	}
 	memcpy(fk->name, constraint_name, strlen(constraint_name));
 	fk->name[strlen(constraint_name)] = '\0';

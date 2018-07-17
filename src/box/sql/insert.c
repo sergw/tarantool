@@ -1358,15 +1358,14 @@ sqlite3GenerateConstraintChecks(Parse * pParse,		/* The parser context */
 			(on_error == ON_CONFLICT_ACTION_REPLACE ||
 			 on_error == ON_CONFLICT_ACTION_IGNORE);
 		bool no_delete_triggers =
-			(0 == (user_session->sql_flags &
-			       SQLITE_RecTriggers) ||
-			 sql_triggers_exist(pTab, TK_DELETE,NULL, NULL) ==
-			 NULL);
+			(user_session->sql_flags & SQLITE_RecTriggers) == 0 ||
+			sql_triggers_exist(pTab, TK_DELETE, NULL, NULL) == NULL;
 		struct space *space = space_by_id(space_id);
 		assert(space != NULL);
 		bool no_foreign_keys =
-			(0 == (user_session->sql_flags & SQLITE_ForeignKeys) ||
-			 (space->child_fkey == NULL && space->parent_fkey));
+			(user_session->sql_flags & SQLITE_ForeignKeys) == 0 ||
+			(space->child_fkey == NULL &&
+			 space->parent_fkey != NULL);
 
 		if (no_secondary_indexes && no_foreign_keys &&
 		    proper_error_action && no_delete_triggers) {

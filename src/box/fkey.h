@@ -127,12 +127,6 @@ fkey_is_self_referenced(const struct fkey_def *fkey)
 	return fkey->child_id == fkey->parent_id;
 }
 
-static inline bool
-space_fkey_check_references(const struct space *space)
-{
-	return space->parent_fkey != NULL;
-}
-
 /**
  * The second argument is a Trigger structure allocated by the
  * fkActionTrigger() routine.This function deletes the Trigger

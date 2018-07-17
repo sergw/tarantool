@@ -92,11 +92,6 @@ int tarantoolSqlite3RenameTable(int iTab, const char *zNewName, char **zSqlStmt)
 int tarantoolSqlite3RenameTrigger(const char *zTriggerName,
 				  const char *zOldName, const char *zNewName);
 
-/* Alter create table statement of child foreign key table by
- * replacing parent table name in create table statement.*/
-int tarantoolSqlite3RenameParentTable(int iTab, const char *zOldParentName,
-				      const char *zNewParentName);
-
 /* Interface for ephemeral tables. */
 int tarantoolSqlite3EphemeralCreate(BtCursor * pCur, uint32_t filed_count,
 				    struct key_def *def);

@@ -2947,7 +2947,9 @@ struct Parse {
 	TriggerPrg *pTriggerPrg;	/* Linked list of coded triggers */
 	With *pWith;		/* Current WITH clause, or NULL */
 	With *pWithToFree;	/* Free this WITH object at the end of the parse */
-	/** Foreign key constraint appeared in CREATE TABLE stmt. */
+	/**
+	 * Foreign key constraint appeared in CREATE TABLE stmt.
+	 */
 	struct fkey_parse *new_fkey;
 	bool initiateTTrans;	/* Initiate Tarantool transaction */
 	/** If set - do not emit byte code at all, just parse.  */
@@ -4550,8 +4552,6 @@ sqlite3ColumnDefault(Vdbe *v, struct space_def *def, int i, int ireg);
 void sqlite3AlterFinishAddColumn(Parse *, Token *);
 void sqlite3AlterBeginAddColumn(Parse *, SrcList *);
 char* rename_table(sqlite3 *, const char *, const char *, bool *);
-char* rename_parent_table(sqlite3 *, const char *, const char *, const char *,
-			  uint32_t *, uint32_t *);
 char* rename_trigger(sqlite3 *, char const *, char const *, bool *);
 /**
  * Find a collation by name. Set error in @a parser if not found.
