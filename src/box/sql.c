@@ -585,6 +585,7 @@ int tarantoolSqlite3EphemeralClearTable(BtCursor *pCur)
 	assert(pCur);
 	assert(pCur->curFlags & BTCF_TEphemCursor);
 
+	assert(space_is_memtx(pCur->space));
 	struct iterator *it = index_create_iterator(*pCur->space->index,
 						    ITER_ALL, nil_key,
 						    0 /* part_count */);
@@ -1134,12 +1135,26 @@ cursor_seek(BtCursor *pCur, int *pRes)
 		return SQL_TARANTOOL_ITERATOR_FAIL;
 	}
 
+	struct space *space = pCur->space;
+	struct txn *txn = NULL;
+
+	assert(space->def->id != 0 || space_is_memtx(space));
+	if (space->def->id != 0 &&
+	    space->def->id != BOX_SQL_STAT4_ID &&
+	    space->def->id != BOX_SQL_STAT1_ID) {
+		if (txn_begin_ro_stmt(space, &txn) != 0)
+			return SQL_TARANTOOL_ERROR;
+	}
 	struct iterator *it = index_create_iterator(pCur->index, pCur->iter_type,
 						    key, part_count);
 	if (it == NULL) {
+		if (txn != NULL)
+			txn_rollback_stmt();
 		pCur->eState = CURSOR_INVALID;
 		return SQL_TARANTOOL_ITERATOR_FAIL;
 	}
+	if (txn != NULL)
+		txn_commit_ro_stmt(txn);
 	pCur->iter = it;
 	pCur->eState = CURSOR_VALID;
 
