@@ -3710,10 +3710,21 @@ void sqlite3OpenTable(Parse *, int iCur, Table *, int);
  * @param tab_list List of single element which table from which
  * deletetion if performed.
  * @param where The WHERE clause.  May be NULL.
+ * @param is_truncate use OP_Clear to truncate table.
  */
 void
 sql_table_delete_from(struct Parse *parse, struct SrcList *tab_list,
 		      struct Expr *where);
+
+/**
+ * Generate a code for TRUNCATE TABLE statement.
+ *
+ * @param parse Parsing context.
+ * @param tab_list List of single element which table from which
+ *        truncation is performed.
+ */
+void
+sql_table_truncate(struct Parse *parse, struct SrcList *tab_list);
 
 void sqlite3Update(Parse *, SrcList *, ExprList *, Expr *,
 		   enum on_conflict_action);

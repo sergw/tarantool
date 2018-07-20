@@ -72,6 +72,62 @@ sql_materialize_view(struct Parse *parse, const char *name, struct Expr *where,
 }
 
 void
+sql_table_truncate(struct Parse *parse, struct SrcList *tab_list)
+{
+	struct sqlite3 *db = parse->db;
+	if (parse->nErr || db->mallocFailed)
+		goto cleanup;
+	assert(tab_list->nSrc == 1);
+
+	struct Vdbe *v = sqlite3GetVdbe(parse);
+	if (v == NULL)
+		goto cleanup;
+
+	const char *tab_name = tab_list->a->zName;
+	struct Table *table = sqlite3LocateTable(parse, LOCATE_NOERR, tab_name);
+	struct space_def *space_def = NULL;
+	if (table == NULL) {
+		/* Space created with LUA. */
+		uint32_t space_id =
+			box_space_id_by_name(tab_name, strlen(tab_name));
+		if (space_id == BOX_ID_NIL) {
+			diag_set(ClientError, ER_NO_SUCH_SPACE, tab_name);
+			parse->rc = SQL_TARANTOOL_ERROR;
+			parse->nErr++;
+			goto cleanup;
+		}
+		struct space *space = space_cache_find(space_id);
+		assert(space != NULL);
+		space_def = space->def;
+	} else {
+		space_def = table->def;
+		if (sqlite3FkRequired(table, NULL) != 0) {
+			const char *err_msg =
+				tt_sprintf("cannot truncate %s because it has "
+					   "foreign keys");
+			diag_set(ClientError, ER_SQL, err_msg);
+			parse->rc = SQL_TARANTOOL_ERROR;
+			parse->nErr++;
+			goto cleanup;
+		}
+	}
+	assert(space_def != NULL);
+	if (space_def->opts.is_view) {
+		const char *err_msg =
+			tt_sprintf("cannot truncate %s because it is a view",
+				   space_def->name);
+		diag_set(ClientError, ER_SQL, err_msg);
+		parse->rc = SQL_TARANTOOL_ERROR;
+		parse->nErr++;
+		goto cleanup;
+	}
+	sqlite3VdbeAddOp2(v, OP_Clear, space_def->id, true);
+
+cleanup:
+	sqlite3SrcListDelete(parse->db, tab_list);
+}
+
+void
 sql_table_delete_from(struct Parse *parse, struct SrcList *tab_list,
 		      struct Expr *where)
 {
