@@ -328,7 +328,13 @@ local function reload_cfg(oldcfg, cfg)
     -- iterate over original table because prepare_cfg() may store NILs
     for key, val in pairs(cfg) do
         if dynamic_cfg[key] == nil and oldcfg[key] ~= val then
-            box.error(box.error.RELOAD_CFG, key);
+            -- then started with tarantoolctl this option is set to
+            -- default value, see #3214.
+            if key == "pid_file" then
+                log.info("Can't set option '%s' dynamically", key)
+            else
+                box.error(box.error.RELOAD_CFG, key);
+            end
         end
     end
     for key in pairs(cfg) do

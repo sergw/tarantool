@@ -443,7 +443,10 @@ local function wrapper_cfg(cfg)
         end
     end
     -- force these startup options
-    cfg.pid_file = default_cfg.pid_file
+    if cfg.pid_file ~= default_cfg.pid_file then
+        log.warn("then using with tarantoolctl option 'pid_file' is ignored")
+        cfg.pid_file = default_cfg.pid_file
+    end
     if os.getenv('USER') ~= default_cfg.username then
         cfg.username = default_cfg.username
     else
