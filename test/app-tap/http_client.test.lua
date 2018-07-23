@@ -62,7 +62,7 @@ local function stop_server(test, server)
 end
 
 local function test_http_client(test, url, opts)
-    test:plan(9)
+    test:plan(8)
 
     test:isnil(rawget(_G, 'http'), "global namespace is not polluted");
     test:isnil(rawget(_G, 'http.client'), "global namespace is not polluted");
@@ -73,7 +73,6 @@ local function test_http_client(test, url, opts)
     test:ok(r.body:match("hello") ~= nil, "body")
     test:ok(tonumber(r.headers["content-length"]) > 0,
         "content-length > 0")
-    test:is(client.get("http://localhost:0/").status, 595, 'bad url')
 
     local r = client.request('GET', url, nil, opts)
     test:is(r.status, 200, 'request')
@@ -191,7 +190,7 @@ local function test_post_and_get(test, url, opts)
 end
 
 local function test_errors(test)
-    test:plan(3)
+    test:plan(2)
     local http = client:new()
     local status, err = pcall(http.get, http, "htp://mail.ru")
     test:ok(not status and string.find(json.encode(err),
@@ -201,8 +200,6 @@ local function test_errors(test)
     test:ok(not status and string.find(json.encode(err),
                         "Unsupported protocol"),
                         "POST: exception on bad protocol")
-    local r = http:get("http://do_not_exist_8ffad33e0cb01e6a01a03d00089e71e5b2b7e9930dfcba.ru")
-    test:is(r.status, 595, "GET: response on bad url")
 end
 
 local function test_headers(test, url, opts)
@@ -397,12 +394,20 @@ local function test_concurrent(test, url, opts)
 end
 
 function run_tests(test, sock_family, sock_addr)
-    test:plan(9)
+    test:plan(10)
     local server, url, opts = start_server(test, sock_family, sock_addr)
     test:test("http.client", test_http_client, url, opts)
     test:test("cancel and errinj", test_cancel_and_errinj, url, opts)
     test:test("basic http post/get", test_post_and_get, url, opts)
     test:test("errors", test_errors)
+    if jit.os == "OSX" then
+        --
+        -- OSX Bus error: 10
+        --
+        test:skip("bad urls")
+    else
+        test:test("bad urls", test_bad_urls)
+    end
     test:test("headers", test_headers, url, opts)
     test:test("special methods", test_special_methods, url, opts)
     if sock_family == 'AF_UNIX' and jit.os ~= "Linux" then
@@ -420,6 +425,14 @@ function run_tests(test, sock_family, sock_addr)
         test:test("concurrent", test_concurrent, url, opts)
     end
     stop_server(test, server)
+end
+
+function test_bad_urls(test)
+    test:plan(2)
+
+    local http = client.new()
+    test:is(http:get("http://localhost:0/").status, 595, 'wrong port')
+    test:is(http:get("http://do_not_exist_8ffad33e0cb01e6a01a03d00089e71e5b2b7e9930dfcba.ru").status, 595, "wrong host")
 end
 
 test:plan(2)
