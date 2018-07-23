@@ -656,11 +656,11 @@ sqlite3AddColumn(Parse * pParse, Token * pName, Token * pType)
 	memcpy(column_def, &field_def_default, sizeof(field_def_default));
 	column_def->name = z;
 	/*
-	 * Marker on_conflict_action_MAX is used to detect
+	 * Marker ON_CONFLICT_ACTION_DEFAULT is used to detect
 	 * attempts to define NULL multiple time or to detect
 	 * invalid primary key definition.
 	 */
-	column_def->nullable_action = on_conflict_action_MAX;
+	column_def->nullable_action = ON_CONFLICT_ACTION_DEFAULT;
 	column_def->is_nullable = true;
 
 	if (pType->n == 0) {
@@ -703,8 +703,8 @@ sql_column_add_nullable_action(struct Parse *parser,
 	if (p == NULL || NEVER(p->def->field_count < 1))
 		return;
 	struct field_def *field = &p->def->fields[p->def->field_count - 1];
-	if (field->nullable_action != on_conflict_action_MAX &&
-	    nullable_action != ON_CONFLICT_ACTION_DEFAULT) {
+	if (field->nullable_action != ON_CONFLICT_ACTION_DEFAULT &&
+	    nullable_action != field->nullable_action) {
 		/* Prevent defining nullable_action many times. */
 		const char *err_msg =
 			tt_sprintf("NULL declaration for column '%s' of table "
@@ -869,13 +869,12 @@ field_def_create_for_pk(struct Parse *parser, struct field_def *field,
 			const char *space_name)
 {
 	if (field->nullable_action != ON_CONFLICT_ACTION_ABORT &&
-	    field->nullable_action != ON_CONFLICT_ACTION_DEFAULT &&
-	    field->nullable_action != on_conflict_action_MAX) {
+	    field->nullable_action != ON_CONFLICT_ACTION_DEFAULT) {
 		diag_set(ClientError, ER_NULLABLE_PRIMARY, space_name);
 		parser->rc = SQL_TARANTOOL_ERROR;
 		parser->nErr++;
 		return -1;
-	} else if (field->nullable_action == on_conflict_action_MAX) {
+	} else if (field->nullable_action == ON_CONFLICT_ACTION_DEFAULT) {
 		field->nullable_action = ON_CONFLICT_ACTION_ABORT;
 		field->is_nullable = false;
 	}
@@ -1643,7 +1642,7 @@ sqlite3EndTable(Parse * pParse,	/* Parse context */
 	/* Set default on_nullable action if required. */
 	struct field_def *field = p->def->fields;
 	for (uint32_t i = 0; i < p->def->field_count; ++i, ++field) {
-		if (field->nullable_action == on_conflict_action_MAX) {
+		if (field->nullable_action == ON_CONFLICT_ACTION_DEFAULT) {
 			field->nullable_action = ON_CONFLICT_ACTION_NONE;
 			field->is_nullable = true;
 		}
